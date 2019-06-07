@@ -54,7 +54,11 @@ namespace atl { namespace TimeWarp {
 		/// @brief Constructor for a TimeWarpClient object.
 		/// @param [in] hostName The computer to connect to.
 		/// @param [in] port The port to connect to.
-		TimeWarpClient(std::string hostName, uint16_t port = DefaultPort);
+		/// @param [in] cardIP The string name of the IP address of the network
+		///             card to use for the outgoing connection, empty string
+		///             for "ANY".
+		TimeWarpClient(std::string hostName, uint16_t port = DefaultPort,
+			std::string cardIP = "");
 
 		/// @brief Destructor for a TimeWarpClient object; stops connection.
 		~TimeWarpClient();

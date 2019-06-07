@@ -15,6 +15,8 @@
 
 #ifndef TW_USE_WINSOCK_SOCKETS
 #define SOCKET int
+// On Win32, this constant is defined as ~0 (sockets are unsigned ints)
+static const int INVALID_SOCKET = -1;
 #endif
 
 #if !(defined(_WIN32) && defined(TW_USE_WINSOCK_SOCKETS))
@@ -85,11 +87,24 @@ extern struct timeval MsecsTimeval(const double dMsecs);
 #include <sys/select.h> // for fd_set
 #endif
 
+/**
+ *      This routine will write a block to a file descriptor.  It acts just
+ * like the write() system call does on files, but it will keep sending to
+ * a socket until an error or all of the data has gone.
+ *      This will also take care of problems caused by interrupted system
+ * calls, retrying the write when they occur.  It will also work when
+ * sending large blocks of data through socket connections, since it will
+ * send all of the data before returning.
+ *	This routine will either write the requested number of bytes and
+ * return that or return -1 (in the case of an error) or 0 (in the case
+ * of EOF being reached before all the data is sent).
+ */
+
 #ifndef TW_USE_WINSOCK_SOCKETS
 	int noint_block_write(int outfile, const char buffer[], size_t length);
 	int noint_block_read(int infile, char buffer[], size_t length);
 #else  /* winsock sockets */
-	int noint_block_write(SOCKET outsock, char* buffer, size_t length);
+	int noint_block_write(SOCKET outsock, const char* buffer, size_t length);
 	int noint_block_read(SOCKET insock, char* buffer, size_t length);
 #endif /* TW_USE_WINSOCK_SOCKETS */
 
@@ -229,5 +244,18 @@ int get_a_TCP_socket(SOCKET* listen_sock, int* listen_portnum,
 int getmyIP(char* myIPchar, unsigned maxlen,
 	const char* NIC_IP = NULL,
 	SOCKET incoming_socket = INVALID_SOCKET);
+
+/// @param [in] NICaddress Name of the network card to use, can be obtained
+///             by calling getmyIP() or set to NULL to listen on all IP addresses.
+bool connect_tcp_to(const char* addr, int port, const char *NICaddress, SOCKET *s);
+
+int close_socket(SOCKET sock);
+
+/// @brief Convert types to and from network-standard byte order.
+double hton(double d);
+double ntoh(double d);
+
+int64_t hton(int64_t d);
+int64_t ntoh(int64_t d);
 
 }  }  }	// End of namespace definitions.

@@ -5,6 +5,14 @@
 #include <system_error>
 #include "TimeWarpSockets.hpp"
 
+#if defined(TW_USE_WINSOCK_SOCKETS)
+/* from HP-UX */
+struct timezone {
+	int tz_minuteswest; /* minutes west of Greenwich */
+	int tz_dsttime;     /* type of dst correction */
+};
+#endif
+
 //--------------------------------------------------------------
 // gettimeofday() defines.  These are a bit hairy.  The basic problem is
 // that Windows doesn't implement gettimeofday(), nor does it
@@ -29,22 +37,147 @@ int TW_gettimeofday(struct timeval* tp,
 #endif
 #else // winsock sockets
 
-// Whether or not we export gettimeofday, we declare the
-// TW_gettimeofday() function on Windows.
-extern int TW_gettimeofday(struct timeval* tp, void* tzp = NULL);
+#include <chrono>
+#include <ctime>
 
-// If compiling under Cygnus Solutions Cygwin then these get defined by
-// including sys/time.h.  So, we will manually define only for _WIN32
-// Only do this if the Configure file has set TW_EXPORT_GETTIMEOFDAY,
-// so that application code can get at it.  All TimeWarp routines should be
-// calling TW_gettimeofday() directly.
+///////////////////////////////////////////////////////////////
+// With Visual Studio 2013 64-bit, the hires clock produces a clock that has a
+// tick interval of around 15.6 MILLIseconds, repeating the same
+// time between them.
+///////////////////////////////////////////////////////////////
+// With Visual Studio 2015 64-bit, the hires clock produces a good, high-
+// resolution clock with no blips.  However, its epoch seems to
+// restart when the machine boots, whereas the system clock epoch
+// starts at the standard midnight January 1, 1970.
+///////////////////////////////////////////////////////////////
 
-#if defined(TW_EXPORT_GETTIMEOFDAY)
+///////////////////////////////////////////////////////////////
+// Helper function to convert from the high-resolution clock
+// time to the equivalent system clock time (assuming no clock
+// adjustment on the system clock since program start).
+//  To make this thread safe, we semaphore the determination of
+// the offset to be applied.  To handle a slow-ticking system
+// clock, we repeatedly sample it until we get a change.
+//  This assumes that the high-resolution clock on different
+// threads has the same epoch.
+///////////////////////////////////////////////////////////////
 
-// manually define this too.  _WIN32 sans cygwin doesn't have gettimeofday
-#define gettimeofday TW_gettimeofday
+static bool hr_offset_determined = false;
+#include <mutex>
+static std::mutex hr_offset_mutex;
+static struct timeval hr_offset;
 
-#endif
+static struct timeval high_resolution_time_to_system_time(
+	struct timeval hi_res_time //< Time computed from high-resolution clock
+)
+{
+	// If we haven't yet determined the offset between the high-resolution
+	// clock and the system clock, do so now.  Avoid a race between threads
+	// using the semaphore and checking the boolean both before and after
+	// grabbing the semaphore (in case someone beat us to it).
+	if (!hr_offset_determined) {
+		std::lock_guard<std::mutex> lock(hr_offset_mutex);
+		// Someone else who had the semaphore may have beaten us to this.
+		if (!hr_offset_determined) {
+			// Watch the system clock until it changes; this will put us
+			// at a tick boundary.  On many systems, this will change right
+			// away, but on Windows 8 it will only tick every 16ms or so.
+			std::chrono::system_clock::time_point pre =
+				std::chrono::system_clock::now();
+			std::chrono::system_clock::time_point post;
+			// On Windows 8.1, this took from 1-16 ticks, and seemed to
+			// get offsets to the epoch that were consistent to within
+			// around 1ms.
+			do {
+				post = std::chrono::system_clock::now();
+			} while (pre == post);
+
+			// Now read the high-resolution timer to find out the time
+			// equivalent to the post time on the system clock.
+			std::chrono::high_resolution_clock::time_point high =
+				std::chrono::high_resolution_clock::now();
+
+			// Now convert both the hi-resolution clock time and the
+			// post-tick system clock time into struct timevals and
+			// store the difference between them as the offset.
+			std::time_t high_secs =
+				std::chrono::duration_cast<std::chrono::seconds>(
+					high.time_since_epoch())
+				.count();
+			std::chrono::high_resolution_clock::time_point
+				fractional_high_secs = high - std::chrono::seconds(high_secs);
+			struct timeval high_time;
+			high_time.tv_sec = static_cast<unsigned long>(high_secs);
+			high_time.tv_usec = static_cast<unsigned long>(
+				std::chrono::duration_cast<std::chrono::microseconds>(
+					fractional_high_secs.time_since_epoch())
+				.count());
+
+			std::time_t post_secs =
+				std::chrono::duration_cast<std::chrono::seconds>(
+					post.time_since_epoch())
+				.count();
+			std::chrono::system_clock::time_point fractional_post_secs =
+				post - std::chrono::seconds(post_secs);
+			struct timeval post_time;
+			post_time.tv_sec = static_cast<unsigned long>(post_secs);
+			post_time.tv_usec = static_cast<unsigned long>(
+				std::chrono::duration_cast<std::chrono::microseconds>(
+					fractional_post_secs.time_since_epoch())
+				.count());
+
+			hr_offset = atl::TimeWarp::Sockets::TimevalDiff(post_time, high_time);
+
+			// We've found our offset ... re-use it from here on.
+			hr_offset_determined = true;
+		}
+	}
+
+	// The offset has been determined, by us or someone else.  Apply it.
+	return atl::TimeWarp::Sockets::TimevalSum(hi_res_time, hr_offset);
+}
+
+int TW_gettimeofday(timeval* tp, void* tzp)
+{
+	// If we have nothing to fill in, don't try.
+	if (tp == NULL) {
+		return 0;
+	}
+	struct timezone* timeZone = reinterpret_cast<struct timezone*>(tzp);
+
+	// Find out the time, and how long it has been in seconds since the
+	// epoch.
+	std::chrono::high_resolution_clock::time_point now =
+		std::chrono::high_resolution_clock::now();
+	std::time_t secs =
+		std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch())
+		.count();
+
+	// Subtract the time in seconds from the full time to get a
+	// remainder that is a fraction of a second since the epoch.
+	std::chrono::high_resolution_clock::time_point fractional_secs =
+		now - std::chrono::seconds(secs);
+
+	// Store the seconds and the fractional seconds as microseconds into
+	// the timeval structure.  Then convert from the hi-res clock time
+	// to system clock time.
+	struct timeval hi_res_time;
+	hi_res_time.tv_sec = static_cast<unsigned long>(secs);
+	hi_res_time.tv_usec = static_cast<unsigned long>(
+		std::chrono::duration_cast<std::chrono::microseconds>(
+			fractional_secs.time_since_epoch())
+		.count());
+	*tp = high_resolution_time_to_system_time(hi_res_time);
+
+	// @todo Fill in timezone structure with relevant info.
+	if (timeZone != NULL) {
+		timeZone->tz_minuteswest = 0;
+		timeZone->tz_dsttime = 0;
+	}
+
+	return 0;
+}
+
 #endif
 
 using namespace atl::TimeWarp::Sockets;
@@ -118,19 +251,6 @@ static std::string WSA_number_to_string(int err)
 extern "C" {
 	int gethostname(char*, int);
 }
-#endif
-
-// On Win32, this constant is defined as ~0 (sockets are unsigned ints)
-#ifndef TW_USE_WINSOCK_SOCKETS
-#define INVALID_SOCKET -1
-#endif
-
-#if defined(TW_USE_WINSOCK_SOCKETS)
-/* from HP-UX */
-struct timezone {
-	int tz_minuteswest; /* minutes west of Greenwich */
-	int tz_dsttime;     /* type of dst correction */
-};
 #endif
 
 // perform normalization of a timeval
@@ -556,7 +676,7 @@ int atl::TimeWarp::Sockets::noint_block_read(int infile, char buffer[], size_t l
 
 #else /* winsock sockets */
 
-int atl::TimeWarp::Sockets::noint_block_write(SOCKET outsock, char* buffer, size_t length)
+int atl::TimeWarp::Sockets::noint_block_write(SOCKET outsock, const char* buffer, size_t length)
 {
 	int nwritten;
 	size_t sofar = 0;
@@ -1166,3 +1286,225 @@ int atl::TimeWarp::Sockets::poll_for_accept(SOCKET listen_sock, SOCKET* accept_s
 
 	return 0; // Nobody called
 }
+
+bool atl::TimeWarp::Sockets::connect_tcp_to(const char* addr, int port,
+	const char* NICaddress, SOCKET *s)
+{
+	if (s == nullptr) {
+		fprintf(stderr, "connect_tcp_to: Null socket pointer\n");
+		return false;
+	}
+
+	struct sockaddr_in client; /* The name of the client */
+	struct hostent* host;      /* The host to connect to */
+
+	/* set up the socket */
+	*s = open_tcp_socket(NULL, NICaddress);
+	if (*s < 0) {
+		fprintf(stderr, "connect_tcp_to: can't open socket\n");
+		return false;
+	}
+	client.sin_family = AF_INET;
+
+	// gethostbyname() fails on SOME Windows NT boxes, but not all,
+	// if given an IP octet string rather than a true name.
+	// MS Documentation says it will always fail and inet_addr should
+	// be called first. Avoids a 30+ second wait for
+	// gethostbyname() to fail.
+
+	if ((client.sin_addr.s_addr = inet_addr(addr)) == INADDR_NONE) {
+		host = gethostbyname(addr);
+		if (host) {
+
+#ifdef CRAY
+			{
+				int i;
+				u_long foo_mark = 0;
+				for (i = 0; i < 4; i++) {
+					u_long one_char = host->h_addr_list[0][i];
+					foo_mark = (foo_mark << 8) | one_char;
+				}
+				client.sin_addr.s_addr = foo_mark;
+			}
+#else
+			memcpy(&(client.sin_addr.s_addr), host->h_addr, host->h_length);
+#endif
+		}
+		else {
+
+#if !defined(hpux) && !defined(__hpux) && !defined(_WIN32) && !defined(sparc)
+			herror("gethostbyname error:");
+#else
+			perror("gethostbyname error:");
+#endif
+			fprintf(stderr, "connect_tcp_to: error finding host by name (%s)\n",
+				addr);
+			return false;
+		}
+	}
+
+#ifndef USE_WINSOCK_SOCKETS
+	client.sin_port = htons(port);
+#else
+	client.sin_port = htons((u_short)port);
+#endif
+
+	if (connect(*s, (struct sockaddr*) & client, sizeof(client)) < 0) {
+#ifdef USE_WINSOCK_SOCKETS
+		if (!d_tcp_only) {
+			fprintf(stderr, "connect_tcp_to: Could not connect "
+				"to machine %d.%d.%d.%d port %d\n",
+				(int)(client.sin_addr.S_un.S_un_b.s_b1),
+				(int)(client.sin_addr.S_un.S_un_b.s_b2),
+				(int)(client.sin_addr.S_un.S_un_b.s_b3),
+				(int)(client.sin_addr.S_un.S_un_b.s_b4),
+				(int)(ntohs(client.sin_port)));
+			int error = WSAGetLastError();
+			fprintf(stderr, "Winsock error: %d\n", error);
+		}
+#else
+		fprintf(stderr, "connect_tcp_to: Could not connect to "
+			"machine %d.%d.%d.%d port %d\n",
+			(int)((client.sin_addr.s_addr >> 24) & 0xff),
+			(int)((client.sin_addr.s_addr >> 16) & 0xff),
+			(int)((client.sin_addr.s_addr >> 8) & 0xff),
+			(int)((client.sin_addr.s_addr >> 0) & 0xff),
+			(int)(ntohs(client.sin_port)));
+#endif
+		closeSocket(*s);
+		return false;
+	}
+
+	/* Set the socket for TCP_NODELAY */
+#if !defined(_WIN32_WCE) && !defined(__ANDROID__)
+	{
+		struct protoent* p_entry;
+		int nonzero = 1;
+
+		if ((p_entry = getprotobyname("TCP")) == NULL) {
+			fprintf(
+				stderr,
+				"connect_tcp_to: getprotobyname() failed.\n");
+			closeSocket(*s);
+			return false;
+		}
+
+		if (setsockopt(*s, p_entry->p_proto, TCP_NODELAY,
+			SOCK_CAST & nonzero, sizeof(nonzero)) == -1) {
+			perror("connect_tcp_to: setsockopt() failed");
+			closeSocket(*s);
+			return false;
+		}
+	}
+#endif
+	return true;
+}
+
+int atl::TimeWarp::Sockets::close_socket(SOCKET sock)
+{
+	return closeSocket(sock);
+}
+
+// From this we get the variable "TW_big_endian" set to true if the machine we
+// are
+// on is big endian and to false if it is little endian.
+
+static const int TW_int_data_for_endian_test = 1;
+static const char* TW_char_data_for_endian_test =
+static_cast<const char*>(static_cast<const void*>((&TW_int_data_for_endian_test)));
+static const bool TW_big_endian = (TW_char_data_for_endian_test[0] != 1);
+
+// convert double to/from network order
+// I have chosen big endian as the network order for double
+// to match the standard for htons() and htonl().
+// NOTE: There is an added complexity when we are using an ARM
+// processor in mixed-endian mode for the doubles, whereby we need
+// to not just swap all of the bytes but also swap the two 4-byte
+// words to get things in the right order.
+#if defined(__arm__)
+#include <endian.h>
+#endif
+
+double atl::TimeWarp::Sockets::hton(double d)
+{
+	if (!TW_big_endian) {
+		double dSwapped;
+		char* pchSwapped = (char*)& dSwapped;
+		char* pchOrig = (char*)& d;
+
+		// swap to big-endian order.
+		unsigned i;
+		for (i = 0; i < sizeof(double); i++) {
+			pchSwapped[i] = pchOrig[sizeof(double) - i - 1];
+		}
+
+#if defined(__arm__) && !defined(__ANDROID__)
+		// On ARM processor, see if we're in mixed mode.  If so,
+		// we need to swap the two words after doing the total
+		// swap of bytes.
+#if __FLOAT_WORD_ORDER != __BYTE_ORDER
+		{
+			/* Fixup mixed endian floating point machines */
+			uint32_t* pwSwapped = (uint32_t*)& dSwapped;
+			uint32_t scratch = pwSwapped[0];
+			pwSwapped[0] = pwSwapped[1];
+			pwSwapped[1] = scratch;
+		}
+#endif
+#endif
+
+		return dSwapped;
+	}
+	else {
+		return d;
+	}
+}
+
+// they are their own inverses, so ...
+double atl::TimeWarp::Sockets::ntoh(double d) { return hton(d); }
+
+// convert int64_t to/from network order
+// I have chosen big endian as the network order for double
+// to match the standard for htons() and htonl().
+// NOTE: There is an added complexity when we are using an ARM
+// processor in mixed-endian mode for the doubles, whereby we need
+// to not just swap all of the bytes but also swap the two 4-byte
+// words to get things in the right order.
+
+int64_t atl::TimeWarp::Sockets::hton(int64_t d)
+{
+	if (!TW_big_endian) {
+		int64_t dSwapped;
+		char* pchSwapped = (char*)& dSwapped;
+		char* pchOrig = (char*)& d;
+
+		// swap to big-endian order.
+		unsigned i;
+		for (i = 0; i < sizeof(int64_t); i++) {
+			pchSwapped[i] = pchOrig[sizeof(int64_t) - i - 1];
+		}
+
+#if defined(__arm__) && !defined(__ANDROID__)
+		// On ARM processor, see if we're in mixed mode.  If so,
+		// we need to swap the two words after doing the total
+		// swap of bytes.
+#if __FLOAT_WORD_ORDER != __BYTE_ORDER
+		{
+			/* Fixup mixed endian floating point machines */
+			uint32_t* pwSwapped = (uint32_t*)& dSwapped;
+			uint32_t scratch = pwSwapped[0];
+			pwSwapped[0] = pwSwapped[1];
+			pwSwapped[1] = scratch;
+		}
+#endif
+#endif
+
+		return dSwapped;
+	}
+	else {
+		return d;
+	}
+}
+
+// they are their own inverses, so ...
+int64_t atl::TimeWarp::Sockets::ntoh(int64_t d) { return hton(d); }

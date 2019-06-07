@@ -59,6 +59,9 @@ target_include_directories(TimeWarp PUBLIC
 if(UNIX)
   target_link_libraries(TimeWarp PUBLIC pthread)
 endif(UNIX)
+if(WIN32)       # MS-Windows, both 32 and 64 bits
+  target_link_libraries(TimeWarp PUBLIC wsock32)
+endif(WIN32)
 set_target_properties(TimeWarp PROPERTIES PUBLIC_HEADER "${AQT_HEADERS}")
 
 install(TARGETS TimeWarp EXPORT ${PROJECT_NAME}
