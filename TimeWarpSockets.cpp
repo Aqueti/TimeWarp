@@ -5,6 +5,26 @@
 #include <system_error>
 #include "TimeWarpSockets.hpp"
 
+//--------------------------------------------------------------
+// Ensures that someone calls WSAStartup on Windows before using
+// any socket code.
+#if defined(TW_USE_WINSOCK_SOCKETS)
+class WSAStart {
+public:
+	WSAStart() {
+		WSADATA wsaData;
+		int winStatus;
+
+		winStatus = WSAStartup(MAKEWORD(1, 1), &wsaData);
+		if (winStatus) {
+			fprintf(stderr, "TimeWarpSockets: Failed to set up sockets.\n");
+			fprintf(stderr, "WSAStartup failed with error code %d\n", winStatus);
+		}
+	}
+};
+static WSAStart startUp;
+#endif
+
 #if defined(TW_USE_WINSOCK_SOCKETS)
 /* from HP-UX */
 struct timezone {
