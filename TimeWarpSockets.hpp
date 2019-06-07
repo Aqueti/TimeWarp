@@ -1,89 +1,52 @@
 #pragma once
 #include <cstdint>
 
-namespace atl {
-namespace TimeWarp {
-namespace Sockets {
-
 // let's start with a clean slate
-#undef USE_WINSOCK_SOCKETS
+#undef TW_USE_WINSOCK_SOCKETS
 
-// Does cygwin use winsock sockets or unix sockets
+// Does cygwin use winsock sockets or unix sockets?  Define this before
+// compiling the library if you want it to use WINSOCK sockets.
 //#define CYGWIN_USES_WINSOCK_SOCKETS
 
 #if defined(_WIN32) &&                                                         \
     (!defined(__CYGWIN__) || defined(CYGWIN_USES_WINSOCK_SOCKETS))
-#define USE_WINSOCK_SOCKETS
+#define TW_USE_WINSOCK_SOCKETS
 #endif
 
-#ifndef USE_WINSOCK_SOCKETS
-// On Win32, this constant is defined as ~0 (sockets are unsigned ints)
-#define INVALID_SOCKET -1
+#ifndef TW_USE_WINSOCK_SOCKETS
 #define SOCKET int
 #endif
 
-#if !(defined(_WIN32) && defined(USE_WINSOCK_SOCKETS))
+#if !(defined(_WIN32) && defined(TW_USE_WINSOCK_SOCKETS))
 #include <sys/select.h> // for select
 #include <netinet/in.h> // for htonl, htons
 #endif
 
 //--------------------------------------------------------------
-// Timeval defines.  These are a bit hairy.  The basic problem is
-// that Windows doesn't implement gettimeofday(), nor does it
-// define "struct timezone", although Winsock.h does define
-// "struct timeval".  The painful solution has been to define a
-// TW_gettimeofday() function that takes a void * as a second
-// argument (the timezone) and have all TimeWarp code call this function
-// rather than gettimeofday().  On non-WINSOCK implementations,
-// we alias TW_gettimeofday() right back to gettimeofday(), so
-// that we are calling the system routine.  On Windows, we will
-// be using TW_gettimofday().
+// Timeval defines.
 
-#if (!defined(USE_WINSOCK_SOCKETS))
-#include <sys/time.h> // for timeval, timezone, gettimeofday
-// If we're using std::chrono, then we implement a new
-// TW_gettimeofday() on top of it in a platform-independent
-// manner.  Otherwise, we just use the system call.
-#ifndef USE_STD_CHRONO
-#define TW_gettimeofday gettimeofday
-#else
-int TW_gettimeofday(struct timeval* tp,
-	void* tzp = NULL);
-#endif
+#if (!defined(TW_USE_WINSOCK_SOCKETS))
+	#include <sys/time.h> // for timeval, timezone, gettimeofday
 #else // winsock sockets
+	// These are a pair of horrible hacks that instruct Windows include
+	// files to (1) not define min() and max() in a way that messes up
+	// standard-library calls to them, and (2) avoids pulling in a large
+	// number of Windows header files.  They are not used directly within
+	// the TimeWarp library, but rather within the Windows include files to
+	// change the way they behave.
 
-// These are a pair of horrible hacks that instruct Windows include
-// files to (1) not define min() and max() in a way that messes up
-// standard-library calls to them, and (2) avoids pulling in a large
-// number of Windows header files.  They are not used directly within
-// the TimeWarp library, but rather within the Windows include files to
-// change the way they behave.
-
-#ifndef NOMINMAX
-#define NOMINMAX
+	#ifndef NOMINMAX
+	#define NOMINMAX
+	#endif
+	#ifndef WIN32_LEAN_AND_MEAN
+	#define WIN32_LEAN_AND_MEAN
+	#endif
+	#include <winsock2.h> // struct timeval is defined here
 #endif
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#include <winsock2.h> // struct timeval is defined here
 
-// Whether or not we export gettimeofday, we declare the
-// TW_gettimeofday() function on Windows.
-extern int TW_gettimeofday(struct timeval* tp, void* tzp = NULL);
-
-// If compiling under Cygnus Solutions Cygwin then these get defined by
-// including sys/time.h.  So, we will manually define only for _WIN32
-// Only do this if the Configure file has set TW_EXPORT_GETTIMEOFDAY,
-// so that application code can get at it.  All TimeWarp routines should be
-// calling TW_gettimeofday() directly.
-
-#if defined(TW_EXPORT_GETTIMEOFDAY)
-
-// manually define this too.  _WIN32 sans cygwin doesn't have gettimeofday
-#define gettimeofday TW_gettimeofday
-
-#endif
-#endif
+namespace atl {
+	namespace TimeWarp {
+		namespace Sockets {
 
 //--------------------------------------------------------------
 // timeval utility functions
@@ -95,48 +58,40 @@ extern int TW_gettimeofday(struct timeval* tp, void* tzp = NULL);
 //  * TimevalSum and TimevalDiff do not do the right thing if
 //    their inputs are not normalized
 //
-//  * TimevalScale now normalizes it's results [9/1999 it didn't before]
+//  * TimevalScale normalizes its results.
 
 // make sure tv_usec is less than 1,000,000
 struct timeval TimevalNormalize(const struct timeval& tv);
 
-extern struct timeval TimevalSum(const struct timeval& tv1,
-	const struct timeval& tv2);
-extern struct timeval TimevalDiff(const struct timeval& tv1,
-	const struct timeval& tv2);
-extern struct timeval TimevalScale(const struct timeval& tv,
-	double scale);
+extern struct timeval TimevalSum(const struct timeval& tv1, const struct timeval& tv2);
+extern struct timeval TimevalDiff(const struct timeval& tv1, const struct timeval& tv2);
+extern struct timeval TimevalScale(const struct timeval& tv, double scale);
 
 /// @brief Return number of microseconds between startT and endT.
-extern unsigned long TimevalDuration(struct timeval endT,
-	struct timeval startT);
+extern unsigned long TimevalDuration(struct timeval endT, struct timeval startT);
 
 /// @brief Return the number of seconds between startT and endT as a
 /// floating-point value.
-extern double TimevalDurationSeconds(struct timeval endT,
-	struct timeval startT);
+extern double TimevalDurationSeconds(struct timeval endT, struct timeval startT);
 
-extern bool TimevalGreater(const struct timeval& tv1,
-	const struct timeval& tv2);
-extern bool TimevalEqual(const struct timeval& tv1,
-	const struct timeval& tv2);
+extern bool TimevalGreater(const struct timeval& tv1, const struct timeval& tv2);
+extern bool TimevalEqual(const struct timeval& tv1, const struct timeval& tv2);
 
 extern double TimevalMsecs(const struct timeval& tv1);
 
 extern struct timeval MsecsTimeval(const double dMsecs);
-extern void SleepMsecs(double dMilliSecs);
 
-#if !(defined(_WIN32) && defined(USE_WINSOCK_SOCKETS))
+#if !(defined(_WIN32) && defined(TW_USE_WINSOCK_SOCKETS))
 #include <sys/select.h> // for fd_set
 #endif
 
-#ifndef USE_WINSOCK_SOCKETS
+#ifndef TW_USE_WINSOCK_SOCKETS
 	int noint_block_write(int outfile, const char buffer[], size_t length);
 	int noint_block_read(int infile, char buffer[], size_t length);
 #else  /* winsock sockets */
 	int noint_block_write(SOCKET outsock, char* buffer, size_t length);
 	int noint_block_read(SOCKET insock, char* buffer, size_t length);
-#endif /* USE_WINSOCK_SOCKETS */
+#endif /* TW_USE_WINSOCK_SOCKETS */
 
 /**
  *	This routine will perform like a normal select() call, but it will
@@ -275,4 +230,4 @@ int getmyIP(char* myIPchar, unsigned maxlen,
 	const char* NIC_IP = NULL,
 	SOCKET incoming_socket = INVALID_SOCKET);
 
-}}}
+}  }  }	// End of namespace definitions.

@@ -5,10 +5,51 @@
 #include <system_error>
 #include "TimeWarpSockets.hpp"
 
+//--------------------------------------------------------------
+// gettimeofday() defines.  These are a bit hairy.  The basic problem is
+// that Windows doesn't implement gettimeofday(), nor does it
+// define "struct timezone", although Winsock.h does define
+// "struct timeval".  The painful solution has been to define a
+// TW_gettimeofday() function that takes a void * as a second
+// argument (the timezone) and have all TimeWarp code call this function
+// rather than gettimeofday().  On non-WINSOCK implementations,
+// we alias TW_gettimeofday() right back to gettimeofday(), so
+// that we are calling the system routine.  On Windows, we will
+// be using TW_gettimofday().
+
+#if (!defined(TW_USE_WINSOCK_SOCKETS))
+// If we're using std::chrono, then we implement a new
+// TW_gettimeofday() on top of it in a platform-independent
+// manner.  Otherwise, we just use the system call.
+#ifndef USE_STD_CHRONO
+#define TW_gettimeofday gettimeofday
+#else
+int TW_gettimeofday(struct timeval* tp,
+	void* tzp = NULL);
+#endif
+#else // winsock sockets
+
+// Whether or not we export gettimeofday, we declare the
+// TW_gettimeofday() function on Windows.
+extern int TW_gettimeofday(struct timeval* tp, void* tzp = NULL);
+
+// If compiling under Cygnus Solutions Cygwin then these get defined by
+// including sys/time.h.  So, we will manually define only for _WIN32
+// Only do this if the Configure file has set TW_EXPORT_GETTIMEOFDAY,
+// so that application code can get at it.  All TimeWarp routines should be
+// calling TW_gettimeofday() directly.
+
+#if defined(TW_EXPORT_GETTIMEOFDAY)
+
+// manually define this too.  _WIN32 sans cygwin doesn't have gettimeofday
+#define gettimeofday TW_gettimeofday
+
+#endif
+#endif
 
 using namespace atl::TimeWarp::Sockets;
 
-#ifdef USE_WINSOCK_SOCKETS
+#ifdef TW_USE_WINSOCK_SOCKETS
 
 // A socket in Windows can not be closed like it can in unix-land
 #define closeSocket closesocket
@@ -43,15 +84,15 @@ static std::string WSA_number_to_string(int err)
 
 #endif
 
-#ifndef USE_WINSOCK_SOCKETS
+#ifndef TW_USE_WINSOCK_SOCKETS
 #include <sys/wait.h> // for waitpid, WNOHANG
 #ifndef __CYGWIN__
 #include <netinet/tcp.h> // for TCP_NODELAY
 #endif                   /* __CYGWIN__ */
-#endif                   /* USE_WINSOCK_SOCKETS */
+#endif                   /* TW_USE_WINSOCK_SOCKETS */
 
 // cast fourth argument to setsockopt()
-#ifdef USE_WINSOCK_SOCKETS
+#ifdef TW_USE_WINSOCK_SOCKETS
 #define SOCK_CAST (char *)
 #else
 #ifdef sparc
@@ -80,9 +121,146 @@ extern "C" {
 #endif
 
 // On Win32, this constant is defined as ~0 (sockets are unsigned ints)
-#ifndef USE_WINSOCK_SOCKETS
+#ifndef TW_USE_WINSOCK_SOCKETS
 #define INVALID_SOCKET -1
 #endif
+
+#if defined(TW_USE_WINSOCK_SOCKETS)
+/* from HP-UX */
+struct timezone {
+	int tz_minuteswest; /* minutes west of Greenwich */
+	int tz_dsttime;     /* type of dst correction */
+};
+#endif
+
+// perform normalization of a timeval
+// XXX this still needs to be checked for errors if the timeval
+// or the rate is negative
+static inline void timevalNormalizeInPlace(timeval& in_tv)
+{
+	const long div_77777 = (in_tv.tv_usec / 1000000);
+	in_tv.tv_sec += div_77777;
+	in_tv.tv_usec -= (div_77777 * 1000000);
+}
+timeval atl::TimeWarp::Sockets::TimevalNormalize(const timeval& in_tv)
+{
+	timeval out_tv = in_tv;
+	timevalNormalizeInPlace(out_tv);
+	return out_tv;
+}
+
+// Calcs the sum of tv1 and tv2.  Returns the sum in a timeval struct.
+// Calcs negative times properly, with the appropriate sign on both tv_sec
+// and tv_usec (these signs will match unless one of them is 0).
+// NOTE: both abs(tv_usec)'s must be < 1000000 (ie, normal timeval format)
+timeval atl::TimeWarp::Sockets::TimevalSum(const timeval& tv1, const timeval& tv2)
+{
+	timeval tvSum = tv1;
+
+	tvSum.tv_sec += tv2.tv_sec;
+	tvSum.tv_usec += tv2.tv_usec;
+
+	// do borrows, etc to get the time the way i want it: both signs the same,
+	// and abs(usec) less than 1e6
+	if (tvSum.tv_sec > 0) {
+		if (tvSum.tv_usec < 0) {
+			tvSum.tv_sec--;
+			tvSum.tv_usec += 1000000;
+		}
+		else if (tvSum.tv_usec >= 1000000) {
+			tvSum.tv_sec++;
+			tvSum.tv_usec -= 1000000;
+		}
+	}
+	else if (tvSum.tv_sec < 0) {
+		if (tvSum.tv_usec > 0) {
+			tvSum.tv_sec++;
+			tvSum.tv_usec -= 1000000;
+		}
+		else if (tvSum.tv_usec <= -1000000) {
+			tvSum.tv_sec--;
+			tvSum.tv_usec += 1000000;
+		}
+	}
+	else {
+		// == 0, so just adjust usec
+		if (tvSum.tv_usec >= 1000000) {
+			tvSum.tv_sec++;
+			tvSum.tv_usec -= 1000000;
+		}
+		else if (tvSum.tv_usec <= -1000000) {
+			tvSum.tv_sec--;
+			tvSum.tv_usec += 1000000;
+		}
+	}
+
+	return tvSum;
+}
+
+// Calcs the diff between tv1 and tv2.  Returns the diff in a timeval struct.
+// Calcs negative times properly, with the appropriate sign on both tv_sec
+// and tv_usec (these signs will match unless one of them is 0)
+timeval atl::TimeWarp::Sockets::TimevalDiff(const timeval& tv1, const timeval& tv2)
+{
+	timeval tv;
+
+	tv.tv_sec = -tv2.tv_sec;
+	tv.tv_usec = -tv2.tv_usec;
+
+	return TimevalSum(tv1, tv);
+}
+
+timeval atl::TimeWarp::Sockets::TimevalScale(const timeval& tv, double scale)
+{
+	timeval result;
+	result.tv_sec = (long)(tv.tv_sec * scale);
+	result.tv_usec =
+		(long)(tv.tv_usec * scale + fmod(tv.tv_sec * scale, 1.0) * 1000000.0);
+	timevalNormalizeInPlace(result);
+	return result;
+}
+
+// returns 1 if tv1 is greater than tv2;  0 otherwise
+bool atl::TimeWarp::Sockets::TimevalGreater(const timeval& tv1, const timeval& tv2)
+{
+	if (tv1.tv_sec > tv2.tv_sec) return 1;
+	if ((tv1.tv_sec == tv2.tv_sec) && (tv1.tv_usec > tv2.tv_usec)) return 1;
+	return 0;
+}
+
+// return 1 if tv1 is equal to tv2; 0 otherwise
+bool atl::TimeWarp::Sockets::TimevalEqual(const timeval& tv1, const timeval& tv2)
+{
+	if (tv1.tv_sec == tv2.tv_sec && tv1.tv_usec == tv2.tv_usec)
+		return true;
+	else
+		return false;
+}
+
+unsigned long atl::TimeWarp::Sockets::TimevalDuration(struct timeval endT, struct timeval startT)
+{
+	return (endT.tv_usec - startT.tv_usec) +
+		1000000L * (endT.tv_sec - startT.tv_sec);
+}
+
+double atl::TimeWarp::Sockets::TimevalDurationSeconds(struct timeval endT, struct timeval startT)
+{
+	return (endT.tv_usec - startT.tv_usec) / 1000000.0 +
+		(endT.tv_sec - startT.tv_sec);
+}
+
+double atl::TimeWarp::Sockets::TimevalMsecs(const timeval& tv)
+{
+	return tv.tv_sec * 1000.0 + tv.tv_usec / 1000.0;
+}
+
+timeval atl::TimeWarp::Sockets::MsecsTimeval(const double dMsecs)
+{
+	timeval tv;
+	tv.tv_sec = (long)floor(dMsecs / 1000.0);
+	tv.tv_usec = (long)((dMsecs / 1000.0 - tv.tv_sec) * 1e6);
+	return tv;
+}
 
 /**
  *   This function returns the host IP address in string form.  For example,
@@ -308,7 +486,7 @@ int atl::TimeWarp::Sockets::noint_select(int width, fd_set* readfds, fd_set* wri
  * of EOF being reached before all the data is sent).
  */
 
-#ifndef USE_WINSOCK_SOCKETS
+#ifndef TW_USE_WINSOCK_SOCKETS
 
 int atl::TimeWarp::Sockets::noint_block_write(int outfile, const char buffer[], size_t length)
 {
@@ -428,7 +606,7 @@ int atl::TimeWarp::Sockets::noint_block_read(SOCKET insock, char* buffer, size_t
 	return static_cast<int>(sofar); /* All bytes read */
 }
 
-#endif /* USE_WINSOCK_SOCKETS */
+#endif /* TW_USE_WINSOCK_SOCKETS */
 
 /**
  *   This routine will read in a block from the file descriptor.
@@ -515,7 +693,7 @@ int atl::TimeWarp::Sockets::noint_block_read_timeout(SOCKET infile, char buffer[
 			continue;
 		}
 
-#ifndef USE_WINSOCK_SOCKETS
+#ifndef TW_USE_WINSOCK_SOCKETS
 		int ret = read(infile, buffer + sofar, length - sofar);
 		sofar += ret;
 
@@ -534,7 +712,7 @@ int atl::TimeWarp::Sockets::noint_block_read_timeout(SOCKET infile, char buffer[
 #endif
 
 	} while ((ret > 0) && (sofar < length));
-#ifndef USE_WINSOCK_SOCKETS
+#ifndef TW_USE_WINSOCK_SOCKETS
 	if (ret == -1) return (-1); /* Error during read */
 #endif
 	if (ret == 0) return (0); /* EOF reached */
@@ -724,7 +902,7 @@ SOCKET atl::TimeWarp::Sockets::connect_udp_port(const char* machineName, int rem
 			return INVALID_SOCKET;
 		}
 	}
-#ifndef USE_WINSOCK_SOCKETS
+#ifndef TW_USE_WINSOCK_SOCKETS
 	udp_name.sin_port = htons(remotePort);
 #else
 	udp_name.sin_port = htons((u_short)remotePort);
