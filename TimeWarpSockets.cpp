@@ -904,8 +904,7 @@ SOCKET atl::TimeWarp::Sockets::open_socket(int type, unsigned short* portno,
 	name.sin_family = AF_INET;
 	if (portno) {
 		name.sin_port = htons(*portno);
-	}
-	else {
+	} else {
 		name.sin_port = htons(0);
 	}
 
@@ -1239,24 +1238,8 @@ int atl::TimeWarp::Sockets::get_a_TCP_socket(SOCKET* listen_sock, int* listen_po
 	}
 
 	*listen_portnum = ntohs(listen_name.sin_port);
-
-	// fprintf(stderr, "Listening on port %d, address %d %d %d %d.\n",
-	//*listen_portnum, listen_name.sin_addr.s_addr >> 24,
-	//(listen_name.sin_addr.s_addr >> 16) & 0xff,
-	//(listen_name.sin_addr.s_addr >> 8) & 0xff,
-	// listen_name.sin_addr.s_addr & 0xff);
-
 	return 0;
 }
-
-/**
- * This routine will check the listen socket to see if there has been a
- * connection request. If so, it will accept a connection on the accept
- * socket and set TCP_NODELAY on that socket. The attempt will timeout
- * in the amount of time specified.  If the accept and set are
- * successful, it returns 1. If there is nothing asking for a connection,
- * it returns 0. If there is an error along the way, it returns -1.
- */
 
 int atl::TimeWarp::Sockets::poll_for_accept(SOCKET listen_sock, SOCKET* accept_sock,
 	double timeout)

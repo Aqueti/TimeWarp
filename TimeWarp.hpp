@@ -50,7 +50,13 @@ namespace atl { namespace TimeWarp {
 
 	protected:
 		class TimeWarpServerPrivate;
-		std::unique_ptr<TimeWarpServerPrivate> m_private;
+		std::shared_ptr<TimeWarpServerPrivate> m_private;
+
+		/// @brief Thread that will listen for incoming connections
+		static void ListenThread(std::shared_ptr<TimeWarpServerPrivate> p);
+
+		/// @brief Thread that will handle commands from an incoming connection
+		static void AcceptThread(std::shared_ptr<TimeWarpServerPrivate> p, size_t i);
 	};
 
 	class TimeWarpClient {

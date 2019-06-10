@@ -9,6 +9,10 @@
 #include "TimeWarp.hpp"
 #include "TimeWarpSockets.hpp"
 #include <mutex>
+#include <thread>
+#include <map>
+#include <memory>
+#include <atomic>
 
 // Versioned magic-cookie string to send and receive at connection initialization.
 static std::string MagicCookie = "aqt::TimeWarp::Connection v01.00.00";
@@ -20,11 +24,32 @@ using namespace atl::TimeWarp;
 
 class atl::TimeWarp::TimeWarpServer::TimeWarpServerPrivate {
 public:
+	// Mutex for all subthreads to use to avoid race conditions when
+	// accessing data structures.
+	std::mutex					m_mutex;
+
 	TimeWarpServerCallback		m_callback = nullptr;
 	void*						m_userData = nullptr;
 	std::vector<std::string>	m_errors;
+
 	SOCKET						m_listen = INVALID_SOCKET;
-	std::mutex					m_mutex;
+	std::thread					m_listenThread;
+
+	// This structure keeps track of threads and the sockets that they should
+	// be listening on.  Each thread is responsible for closing its own socket
+	// before it exits.  There is a map from std::size to the infos to make it
+	// easy for a thread to look up its entry and still allow each deletion
+	// without changing the placement (as would happen in a vector).
+	struct AcceptInfo {
+		AcceptInfo(std::shared_ptr<std::thread> t, SOCKET s) : m_thread(t), m_sock(s) {};
+		std::shared_ptr<std::thread>	m_thread;
+		SOCKET							m_sock;
+		std::atomic<bool>				m_done = false;
+	};
+	std::map<size_t, std::shared_ptr<AcceptInfo> > m_acceptThreads;
+	size_t				m_nextMapEntry = 0;
+
+	volatile bool				m_quit = false;		///< Time to shut down?
 };
 
 TimeWarpServer::TimeWarpServer(TimeWarpServerCallback callback, void* userData,
@@ -41,11 +66,157 @@ TimeWarpServer::TimeWarpServer(TimeWarpServerCallback callback, void* userData,
 	m_private->m_userData = userData;
 
 	// Open the socket that we're going to listen on for new connections.
-	/// @todo
+	const char* cardIPChar = nullptr;
+	if (cardIP.size() > 0) {
+		cardIPChar = cardIP.c_str();
+	}
+	m_private->m_listen = Sockets::open_tcp_socket(&port, cardIPChar);
+	if (m_private->m_listen == INVALID_SOCKET) {
+		m_private->m_errors.push_back("Could not open socket " + std::to_string(port) +
+			" for listening");
+		return;
+	}
+	if (listen(m_private->m_listen, 1)) {
+		m_private->m_errors.push_back("get_a_TCP_socket: listen() failed.");
+		Sockets::close_socket(m_private->m_listen);
+		m_private->m_listen = INVALID_SOCKET;
+		return;
+	}
 
-	// Start a thread to listen on the socket and spawn new threads when we get
-	// connections.
-	/// @todo
+	// Start a thread to accept connections on the listening socket.
+	m_private->m_listenThread = std::thread(ListenThread, m_private);
+}
+
+TimeWarpServer::~TimeWarpServer()
+{
+	// Tell all of our sub-threads it is time to quit.
+	m_private->m_quit = true;
+
+	// Wait for the listening thread to quit, which will have waited for
+	// all of the accepting threads to have quit.
+	m_private->m_listenThread.join();
+}
+
+/* Static */
+void TimeWarpServer::ListenThread(std::shared_ptr<TimeWarpServerPrivate> p)
+{
+	if (!p) { return; }
+
+	// Keep listening for connections.  When we get one, add it to the list.
+	while (!p->m_quit) {
+		SOCKET acceptSock;
+		int ret = Sockets::poll_for_accept(p->m_listen, &acceptSock, 0.01);
+		switch (ret) {
+			case 0:
+				break;
+			case 1:
+				{	std::lock_guard<std::mutex> lock(p->m_mutex);
+					p->m_acceptThreads[p->m_nextMapEntry] =
+						std::make_shared<TimeWarpServerPrivate::AcceptInfo>(
+							std::make_shared<std::thread>(AcceptThread, p, p->m_nextMapEntry),
+							acceptSock);
+					p->m_nextMapEntry++;
+				}
+				break;
+
+			default:
+				{	std::lock_guard<std::mutex> lock(p->m_mutex);
+					p->m_errors.push_back("Failure listenting on socket");
+				}
+				break;
+		}
+
+		// If any of the accept threads have completed, remove them from the map.
+		auto i = p->m_acceptThreads.begin();
+		{
+			std::lock_guard<std::mutex> lock(p->m_mutex);
+			while (i != p->m_acceptThreads.end()) {
+				if (i->second->m_done) {
+					i->second->m_thread->join();
+					// Delete the entry from the map and advance to the next entry
+					auto victim = i;
+					i++;
+					p->m_acceptThreads.erase(victim);
+				}
+				else {
+					i++;
+				}
+			}
+		}
+	}
+
+	// Wait for all of the accept threads to quit and remove them from the map.
+	while (p->m_acceptThreads.size()) {
+		p->m_acceptThreads.begin()->second->m_thread->join();
+		p->m_acceptThreads.erase(p->m_acceptThreads.begin());
+	}
+}
+
+void TimeWarpServer::AcceptThread(std::shared_ptr<TimeWarpServerPrivate> p, size_t i)
+{
+	if (!p) { return; }
+	std::shared_ptr<TimeWarpServerPrivate::AcceptInfo> info = p->m_acceptThreads[i];
+
+	{
+		// Try to send the magic cookie, telling the client our version.
+		size_t len = MagicCookie.size();
+		if (len != Sockets::noint_block_write(info->m_sock, MagicCookie.c_str(), len)) {
+			std::lock_guard<std::mutex> lock(p->m_mutex);
+			p->m_errors.push_back("Could not write magic cookie");
+			Sockets::close_socket(info->m_sock);
+			info->m_sock = INVALID_SOCKET;
+			return;
+		}
+
+		// Try to read the magic cookie from the client and see if it matches what
+		// we're expecting.  Time out if we don't hear back within half a second.
+		std::vector<char> cookie(len);
+		struct timeval timeout = { 0, 5000000 };
+		if (len != Sockets::noint_block_read_timeout(info->m_sock, cookie.data(), len, &timeout)) {
+			std::lock_guard<std::mutex> lock(p->m_mutex);
+			p->m_errors.push_back("Could not read magic cookie");
+			Sockets::close_socket(info->m_sock);
+			info->m_sock = INVALID_SOCKET;
+			return;
+		}
+		if (0 != memcmp(cookie.data(), MagicCookie.c_str(), len)) {
+			std::lock_guard<std::mutex> lock(p->m_mutex);
+			p->m_errors.push_back("Bad magic cookie from server");
+			Sockets::close_socket(info->m_sock);
+			info->m_sock = INVALID_SOCKET;
+			return;
+		}
+	}
+
+	// Keep reading until it is time to quit or we get an error.
+	size_t numRead = 0;
+	int64_t opLocal;
+	int64_t offLocal;
+	size_t len = sizeof(opLocal) + sizeof(offLocal);
+	std::vector<char> buffer(len);
+	while (!p->m_quit) {
+		// Poll to see if we can read another request until we get one or get an error.
+		struct timeval timeout = { 0, 1000 };
+		int got = Sockets::noint_block_read_timeout(info->m_sock, &(buffer.data()[numRead]),
+			len - numRead, &timeout);
+
+		// If it was an error, we're done.  This is not a global error, just a closed connection.
+		if (got == -1) { break; }
+
+		// If we got a complete report, handle it and reset for the next one
+		// Otherwise, we just go around and read some more.
+		if (numRead + got == len) {
+			std::lock_guard<std::mutex> lock(p->m_mutex);
+			opLocal = Sockets::ntoh(*reinterpret_cast<int64_t*>(&buffer.data()[0]));
+			offLocal = Sockets::ntoh(*reinterpret_cast<int64_t*>(&buffer.data()[sizeof(opLocal)]));
+			p->m_callback(p->m_userData, offLocal);
+			numRead = 0;
+		}
+	}
+	
+	// Close my socket before quitting
+	Sockets::close_socket(info->m_sock);
+	info->m_done = true;
 }
 
 std::vector<std::string> TimeWarpServer::GetErrorMessages()

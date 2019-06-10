@@ -55,7 +55,7 @@ int main(int argc, char* argv[])
 
 	// Send a set of time adjustments to the server and wait for them to appear.
 	// If they don't appear soon enough, then there is an error.
-	for (int64_t to = -1000; to < 1000; to += 100) {
+	for (int64_t to = -1000; to <= 1000; to += 100) {
 		if (!cli->SetTimeOffset(to)) {
 			std::cerr << "Error(s) updating time to " << to << ":" << std::endl;
 			for (size_t i = 0; i < errs.size(); i++) {
@@ -65,7 +65,7 @@ int main(int argc, char* argv[])
 		}
 
 		// Wait a bit and then see if the time is what we expect.
-		std::this_thread::sleep_for(std::chrono::milliseconds(3));
+		std::this_thread::sleep_for(std::chrono::milliseconds(10));
 		if (g_state.timeOffset != to) {
 			std::cerr << "Time mismatch after update: "
 				<< g_state.timeOffset << " != " << to << std::endl;

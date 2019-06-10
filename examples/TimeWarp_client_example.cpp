@@ -24,7 +24,7 @@ int main(int argc, char* argv[])
 	}
 
 	// Send a set of time adjustments to the server, waiting in between sends
-	for (int64_t to = -1000; to < 1000; to += 100) {
+	for (int64_t to = -1000; to <= 1000; to += 100) {
 		if (!cli->SetTimeOffset(to)) {
 			std::cerr << "Error(s) updating time to " << to << ":" << std::endl;
 			for (size_t i = 0; i < errs.size(); i++) {
@@ -34,7 +34,7 @@ int main(int argc, char* argv[])
 		}
 
 		// Wait a bit between sends.
-		std::this_thread::sleep_for(std::chrono::seconds(1));
+		std::this_thread::sleep_for(std::chrono::milliseconds(10));
 	}
 
 	// Done with all of our objects!

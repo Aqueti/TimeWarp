@@ -132,6 +132,15 @@ int noint_select(int width, fd_set* readfds, fd_set* writefds,
 int noint_block_read_timeout(SOCKET infile, char buffer[], size_t length,
 	struct timeval* timeout);
 
+/**
+ * This routine will check the listen socket to see if there has been a
+ * connection request. If so, it will accept a connection on the accept
+ * socket and set TCP_NODELAY on that socket. The attempt will timeout
+ * in the amount of time specified.  If the accept and set are
+ * successful, it returns 1. If there is nothing asking for a connection,
+ * it returns 0. If there is an error along the way, it returns -1.
+ */
+
 int poll_for_accept(SOCKET listen_sock, SOCKET* accept_sock,
 	double timeout = 0.0);
 
