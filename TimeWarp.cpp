@@ -8,6 +8,7 @@
 
 #include "TimeWarp.hpp"
 #include "TimeWarpSockets.hpp"
+#include <mutex>
 
 // Versioned magic-cookie string to send and receive at connection initialization.
 static std::string MagicCookie = "aqt::TimeWarp::Connection v01.00.00";
@@ -19,10 +20,33 @@ using namespace atl::TimeWarp;
 
 class atl::TimeWarp::TimeWarpServer::TimeWarpServerPrivate {
 public:
-	std::vector<std::string> m_errors;
-
-	friend class TimeWarpServer;
+	TimeWarpServerCallback		m_callback = nullptr;
+	void*						m_userData = nullptr;
+	std::vector<std::string>	m_errors;
+	SOCKET						m_listen = INVALID_SOCKET;
+	std::mutex					m_mutex;
 };
+
+TimeWarpServer::TimeWarpServer(TimeWarpServerCallback callback, void* userData,
+	uint16_t port, std::string cardIP)
+{
+	m_private.reset(new TimeWarpServerPrivate());
+
+	// Check and store the paramters
+	if (!callback) {
+		m_private->m_errors.push_back("Null callback handler passed to constructor");
+		return;
+	}
+	m_private->m_callback = callback;
+	m_private->m_userData = userData;
+
+	// Open the socket that we're going to listen on for new connections.
+	/// @todo
+
+	// Start a thread to listen on the socket and spawn new threads when we get
+	// connections.
+	/// @todo
+}
 
 std::vector<std::string> TimeWarpServer::GetErrorMessages()
 {
@@ -98,12 +122,12 @@ bool TimeWarpClient::SetTimeOffset(int64_t timeOffset)
 
 	// Pack a 64-bit op-code to set the time offset followed by
 	// the 64-bit time offset into a buffer and send it.
-	size_t len = sizeof(double) + sizeof(int64_t);
-	std::vector<char> buffer(len);
 	int64_t opNet = Sockets::hton(OP_SET_TIME);
 	int64_t offNet = Sockets::hton(timeOffset);
+	size_t len = sizeof(opNet) + sizeof(offNet);
+	std::vector<char> buffer(len);
 	memcpy(&buffer[0], &opNet, sizeof(int64_t));
-	memcpy(&buffer[4], &offNet, sizeof(int64_t));
+	memcpy(&buffer[sizeof(opNet)], &offNet, sizeof(int64_t));
 
 	// Send the command
 	if (len != Sockets::noint_block_write(m_private->m_socket, buffer.data(), len)) {

@@ -34,7 +34,11 @@ namespace atl { namespace TimeWarp {
 		/// @param [in] userData A (possibly-Null) pointer that is passed to the
 		///             callback function when it is called.  This is useful for
 		///             passing data that it will need to know to handle the request.
-		TimeWarpServer(TimeWarpServerCallback callback, void *userData, uint16_t port = DefaultPort);
+		/// @param [in] cardIP The string name of the IP address of the network
+		///             card to use for the outgoing connection, empty string
+		///             for "ANY".
+		TimeWarpServer(TimeWarpServerCallback callback, void *userData,
+			uint16_t port = DefaultPort, std::string cardIP = "");
 
 		/// @brief Destructor for a TimeWarpServer object; stops all threads and connections.
 		~TimeWarpServer();
