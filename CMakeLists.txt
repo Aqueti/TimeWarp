@@ -15,6 +15,7 @@ set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
 #-----------------------------------------------------------------------------
 # Checking for optional and required packages
+find_package(AquetiTools CONFIG REQUIRED)
 
 #-----------------------------------------------------------------------------
 # Build options.
@@ -36,7 +37,7 @@ else()
 	set(DISPLAYSERVERCLIENT_SHARED_LIBRARY_DIR "${CMAKE_INSTALL_LIBDIR}")
 endif()
 
-set (TimeWarpLib_SOURCES TimeWarp.cpp TimeWarpSockets.cpp)
+set (TimeWarpLib_SOURCES TimeWarp.cpp)
 
 #-----------------------------------------------------------------------------
 # Build the library.
@@ -56,6 +57,7 @@ target_include_directories(TimeWarp PUBLIC
   ${CMAKE_BINARY_DIR}
   ${CMAKE_INSTALL_PREFIX}/include
 )
+target_link_libraries(TimeWarp PUBLIC AquetiTools)
 if(UNIX)
   target_link_libraries(TimeWarp PUBLIC pthread)
 endif(UNIX)
