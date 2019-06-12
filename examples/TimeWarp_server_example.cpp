@@ -33,7 +33,9 @@ int main(int argc, char* argv[])
 
 	// Wait forever; the callback handler will be called by the server
 	// thread when it receives a message from any connection.
-	while (true) {};
+	while (true) {
+		std::this_thread::sleep_for(std::chrono::milliseconds(1));
+	};
 
 	// Done with all of our objects!
 	delete svr;
