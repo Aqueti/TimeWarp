@@ -13,6 +13,7 @@
 #include <map>
 #include <memory>
 #include <atomic>
+#include <string.h>
 
 // Versioned magic-cookie string to send and receive at connection initialization.
 static std::string MagicCookie = "aqt::TimeWarp::Connection v01.00.00";
@@ -41,10 +42,10 @@ public:
 	// easy for a thread to look up its entry and still allow each deletion
 	// without changing the placement (as would happen in a vector).
 	struct AcceptInfo {
-		AcceptInfo(std::shared_ptr<std::thread> t, SOCKET s) : m_thread(t), m_sock(s) {};
+		AcceptInfo(std::shared_ptr<std::thread> t, SOCKET s) : m_thread(t), m_sock(s), m_done(false) {};
 		std::shared_ptr<std::thread>	m_thread;
 		SOCKET							m_sock;
-		std::atomic<bool>				m_done = false;
+		std::atomic<bool>				m_done;
 	};
 	std::map<size_t, std::shared_ptr<AcceptInfo> > m_acceptThreads;
 	size_t				m_nextMapEntry = 0;
@@ -113,8 +114,12 @@ void TimeWarpServer::ListenThread(std::shared_ptr<TimeWarpServerPrivate> p)
 				{	std::lock_guard<std::mutex> lock(p->m_mutex);
 					p->m_acceptThreads[p->m_nextMapEntry] =
 						std::make_shared<TimeWarpServerPrivate::AcceptInfo>(
-							std::make_shared<std::thread>(AcceptThread, p, p->m_nextMapEntry),
+							nullptr,
 							acceptSock);
+					// Start the thread only after the map entry is made to avoid
+					// having the thread running before its data is available.
+					p->m_acceptThreads[p->m_nextMapEntry]->m_thread =
+						std::make_shared<std::thread>(AcceptThread, p, p->m_nextMapEntry);
 					p->m_nextMapEntry++;
 				}
 				break;
@@ -165,18 +170,20 @@ void TimeWarpServer::AcceptThread(std::shared_ptr<TimeWarpServerPrivate> p, size
 			p->m_errors.push_back("Could not write magic cookie");
 			Sockets::close_socket(info->m_sock);
 			info->m_sock = INVALID_SOCKET;
+			info->m_done = true;
 			return;
 		}
 
 		// Try to read the magic cookie from the client and see if it matches what
 		// we're expecting.  Time out if we don't hear back within half a second.
 		std::vector<char> cookie(len);
-		struct timeval timeout = { 0, 5000000 };
+		struct timeval timeout = { 0, 500000 };
 		if (len != Sockets::noint_block_read_timeout(info->m_sock, cookie.data(), len, &timeout)) {
 			std::lock_guard<std::mutex> lock(p->m_mutex);
 			p->m_errors.push_back("Could not read magic cookie");
 			Sockets::close_socket(info->m_sock);
 			info->m_sock = INVALID_SOCKET;
+			info->m_done = true;
 			return;
 		}
 		if (0 != memcmp(cookie.data(), MagicCookie.c_str(), len)) {
@@ -184,6 +191,7 @@ void TimeWarpServer::AcceptThread(std::shared_ptr<TimeWarpServerPrivate> p, size
 			p->m_errors.push_back("Bad magic cookie from server");
 			Sockets::close_socket(info->m_sock);
 			info->m_sock = INVALID_SOCKET;
+			info->m_done = true;
 			return;
 		}
 	}
@@ -196,12 +204,14 @@ void TimeWarpServer::AcceptThread(std::shared_ptr<TimeWarpServerPrivate> p, size
 	std::vector<char> buffer(len);
 	while (!p->m_quit) {
 		// Poll to see if we can read another request until we get one or get an error.
-		struct timeval timeout = { 0, 1000 };
+		struct timeval timeout = { 1, 1000 };
 		int got = Sockets::noint_block_read_timeout(info->m_sock, &(buffer.data()[numRead]),
 			len - numRead, &timeout);
 
 		// If it was an error, we're done.  This is not a global error, just a closed connection.
-		if (got == -1) { break; }
+		if (got == -1) {
+			break;
+		}
 
 		// If we got a complete report, handle it and reset for the next one
 		// Otherwise, we just go around and read some more.
@@ -258,8 +268,9 @@ TimeWarpClient::TimeWarpClient(std::string hostName, uint16_t port, std::string 
 	// Try to read the magic cookie from the server and see if it matches what
 	// we're expecting.  Time out if we don't hear back within half a second.
 	std::vector<char> cookie(len);
-	struct timeval timeout = { 0, 5000000 };
-	if (len != Sockets::noint_block_read_timeout(m_private->m_socket, cookie.data(), len, &timeout)) {
+	struct timeval timeout = { 0, 500000 };
+	int ret;
+	if (len != (ret = Sockets::noint_block_read_timeout(m_private->m_socket, cookie.data(), len, &timeout))) {
 		m_private->m_errors.push_back("Could not read magic cookie");
 		Sockets::close_socket(m_private->m_socket);
 		m_private->m_socket = INVALID_SOCKET;
