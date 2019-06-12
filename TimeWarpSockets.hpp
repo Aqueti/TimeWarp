@@ -100,13 +100,20 @@ extern struct timeval MsecsTimeval(const double dMsecs);
  * of EOF being reached before all the data is sent).
  */
 
-#ifndef TW_USE_WINSOCK_SOCKETS
-	int noint_block_write(int outfile, const char buffer[], size_t length);
-	int noint_block_read(int infile, char buffer[], size_t length);
-#else  /* winsock sockets */
-	int noint_block_write(SOCKET outsock, const char* buffer, size_t length);
-	int noint_block_read(SOCKET insock, char* buffer, size_t length);
-#endif /* TW_USE_WINSOCK_SOCKETS */
+int noint_block_write(SOCKET outsock, const char* buffer, size_t length);
+
+/**
+ *      This routine will read in a block from the file descriptor.
+ * It acts just like the read() routine does on normal files, so that
+ * it hides the fact that the descriptor may point to a socket.
+ *      This will also take care of problems caused by interrupted system
+ * calls, retrying the read when they occur.
+ *	This routine will either read the requested number of bytes and
+ * return that or return -1 (in the case of an error) or 0 (in the case
+ * of EOF being reached before all the data arrives).
+ */
+
+int noint_block_read(SOCKET insock, char* buffer, size_t length);
 
 /**
  *	This routine will perform like a normal select() call, but it will
@@ -124,7 +131,7 @@ int noint_select(int width, fd_set* readfds, fd_set* writefds,
  *   This will also take care of problems caused by interrupted system
  * calls, retrying the read when they occur.
  *   This routine will either read the requested number of bytes and
- * return that or return -1 (in the case of an error) or 0 (in the case
+ * return that or return -1 (in the case of an error or in the case
  * of EOF being reached before all the data arrives), or return the number
  * of characters read before timeout (in the case of a timeout).
  */

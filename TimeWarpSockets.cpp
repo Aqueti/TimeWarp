@@ -2,7 +2,9 @@
 #define _WINSOCK_DEPRECATED_NO_WARNINGS
 
 #include <string>
+#include <string.h>
 #include <system_error>
+#include <math.h>
 #include "TimeWarpSockets.hpp"
 
 //--------------------------------------------------------------
@@ -402,18 +404,6 @@ timeval atl::TimeWarp::Sockets::MsecsTimeval(const double dMsecs)
 	return tv;
 }
 
-/**
- *   This function returns the host IP address in string form.  For example,
- * the machine "ioglab.cs.unc.edu" becomes "152.2.130.90."  This is done
- * so that the remote host can connect back even if it can't resolve the
- * DNS name of this host.  This is especially useful at conferences, where
- * DNS may not even be running.
- *   If the NIC_IP name is passed in as NULL but the SOCKET passed in is
- * valid, then look up the address associated with that socket; this is so
- * that when a machine has multiple NICs, it will send the outgoing request
- * for UDP connections to the same place that its TCP connection is on.
- */
-
 int atl::TimeWarp::Sockets::getmyIP(char* myIPchar, unsigned maxlen,
 	const char* NIC_IP,
 	SOCKET incoming_socket)
@@ -516,12 +506,6 @@ int atl::TimeWarp::Sockets::getmyIP(char* myIPchar, unsigned maxlen,
 	return 0;
 }
 
-/**
- *	This routine will perform like a normal select() call, but it will
- * restart if it quit because of an interrupt.  This makes it more robust
- * in its function, and allows this code to perform properly on pxpl5, which
- * sends USER1 interrupts while rendering an image.
- */
 int atl::TimeWarp::Sockets::noint_select(int width, fd_set* readfds, fd_set* writefds,
 	fd_set* exceptfds, struct timeval* timeout)
 {
@@ -556,20 +540,17 @@ int atl::TimeWarp::Sockets::noint_select(int width, fd_set* readfds, fd_set* wri
 		 * through. */
 		if (readfds != NULL) {
 			tmpread = *readfds;
-		}
-		else {
+		} else {
 			FD_ZERO(&tmpread);
 		}
 		if (writefds != NULL) {
 			tmpwrite = *writefds;
-		}
-		else {
+		} else {
 			FD_ZERO(&tmpwrite);
 		}
 		if (exceptfds != NULL) {
 			tmpexcept = *exceptfds;
-		}
-		else {
+		} else {
 			FD_ZERO(&tmpexcept);
 		}
 
@@ -577,11 +558,9 @@ int atl::TimeWarp::Sockets::noint_select(int width, fd_set* readfds, fd_set* wri
 		ret = select(width, &tmpread, &tmpwrite, &tmpexcept, timeout2ptr);
 		if (ret >= 0) { /* We are done if timeout or found some */
 			done = 1;
-		}
-		else if (socket_error != TW_EINTR) { /* Done if non-intr error */
+		} else if (socket_error != TW_EINTR) { /* Done if non-intr error */
 			done = 1;
-		}
-		else if ((timeout != NULL) &&
+		} else if ((timeout != NULL) &&
 			((timeout->tv_sec != 0) || (timeout->tv_usec != 0))) {
 
 			/* Interrupt happened.  Find new time timeout value */
@@ -613,19 +592,6 @@ int atl::TimeWarp::Sockets::noint_select(int width, fd_set* readfds, fd_set* wri
 	return (ret);
 }
 
-/**
- *      This routine will write a block to a file descriptor.  It acts just
- * like the write() system call does on files, but it will keep sending to
- * a socket until an error or all of the data has gone.
- *      This will also take care of problems caused by interrupted system
- * calls, retrying the write when they occur.  It will also work when
- * sending large blocks of data through socket connections, since it will
- * send all of the data before returning.
- *	This routine will either write the requested number of bytes and
- * return that or return -1 (in the case of an error) or 0 (in the case
- * of EOF being reached before all the data is sent).
- */
-
 #ifndef TW_USE_WINSOCK_SOCKETS
 
 int atl::TimeWarp::Sockets::noint_block_write(int outfile, const char buffer[], size_t length)
@@ -651,17 +617,6 @@ int atl::TimeWarp::Sockets::noint_block_write(int outfile, const char buffer[], 
 
 	return (sofar); /* All bytes written */
 }
-
-/**
- *      This routine will read in a block from the file descriptor.
- * It acts just like the read() routine does on normal files, so that
- * it hides the fact that the descriptor may point to a socket.
- *      This will also take care of problems caused by interrupted system
- * calls, retrying the read when they occur.
- *	This routine will either read the requested number of bytes and
- * return that or return -1 (in the case of an error) or 0 (in the case
- * of EOF being reached before all the data arrives).
- */
 
 int atl::TimeWarp::Sockets::noint_block_read(int infile, char buffer[], size_t length)
 {
@@ -748,18 +703,6 @@ int atl::TimeWarp::Sockets::noint_block_read(SOCKET insock, char* buffer, size_t
 
 #endif /* TW_USE_WINSOCK_SOCKETS */
 
-/**
- *   This routine will read in a block from the file descriptor.
- * It acts just like the read() routine on normal files, except that
- * it will time out if the read takes too long.
- *   This will also take care of problems caused by interrupted system
- * calls, retrying the read when they occur.
- *   This routine will either read the requested number of bytes and
- * return that or return -1 (in the case of an error) or 0 (in the case
- * of EOF being reached before all the data arrives), or return the number
- * of characters read before timeout (in the case of a timeout).
- */
-
 int atl::TimeWarp::Sockets::noint_block_read_timeout(SOCKET infile, char buffer[], size_t length,
 	struct timeval* timeout)
 {
@@ -787,8 +730,7 @@ int atl::TimeWarp::Sockets::noint_block_read_timeout(SOCKET infile, char buffer[
 		timeout2ptr = &timeout2;
 		TW_gettimeofday(&start, NULL);         /* Find start time */
 		stop = TimevalSum(start, *timeout); /* Find stop time */
-	}
-	else {
+	} else {
 		timeout2ptr = timeout;
 	}
 
@@ -822,8 +764,7 @@ int atl::TimeWarp::Sockets::noint_block_read_timeout(SOCKET infile, char buffer[
 			TW_gettimeofday(&now, NULL);
 			if (TimevalGreater(now, stop)) { /* Timeout! */
 				return static_cast<int>(sofar);
-			}
-			else {
+			} else {
 				timeout2 = TimevalDiff(stop, now);
 			}
 		}
@@ -834,7 +775,7 @@ int atl::TimeWarp::Sockets::noint_block_read_timeout(SOCKET infile, char buffer[
 		}
 
 #ifndef TW_USE_WINSOCK_SOCKETS
-		int ret = read(infile, buffer + sofar, length - sofar);
+		ret = read(infile, buffer + sofar, length - sofar);
 		sofar += ret;
 
 		/* Ignore interrupted system calls - retry */
@@ -855,20 +796,10 @@ int atl::TimeWarp::Sockets::noint_block_read_timeout(SOCKET infile, char buffer[
 #ifndef TW_USE_WINSOCK_SOCKETS
 	if (ret == -1) return (-1); /* Error during read */
 #endif
-	if (ret == 0) return (0); /* EOF reached */
+	if (ret == 0) return (-1); /* EOF reached */
 
 	return static_cast<int>(sofar); /* All bytes read */
 }
-
-/**
- * This routine opens a socket with the requested port number.
- * The routine returns -1 on failure and the file descriptor on success.
- * The portno parameter is filled in with the actual port that is opened
- * (this is useful when the address INADDR_ANY is used, since it tells
- * what port was opened).
- * To select between multiple NICs, we can specify the IP address of the
- * socket to open;  NULL selects the default NIC.
- */
 
 SOCKET atl::TimeWarp::Sockets::open_socket(int type, unsigned short* portno,
 	const char* IPaddress)
@@ -972,28 +903,16 @@ SOCKET atl::TimeWarp::Sockets::open_socket(int type, unsigned short* portno,
 	return sock;
 }
 
-/**
- * Create a UDP socket and bind it to its local address.
- */
-
 SOCKET atl::TimeWarp::Sockets::open_udp_socket(unsigned short* portno, const char* IPaddress)
 {
 	return open_socket(SOCK_DGRAM, portno, IPaddress);
 }
-
-/**
- * Create a TCP socket and bind it to its local address.
- */
 
 SOCKET atl::TimeWarp::Sockets::open_tcp_socket(unsigned short* portno,
 	const char* NIC_IP)
 {
 	return open_socket(SOCK_STREAM, portno, NIC_IP);
 }
-
-/**
- * Create a UDP socket and connect it to a specified port.
- */
 
 SOCKET atl::TimeWarp::Sockets::connect_udp_port(const char* machineName, int remotePort,
 	const char* NIC_IP)
@@ -1075,29 +994,6 @@ SOCKET atl::TimeWarp::Sockets::connect_udp_port(const char* machineName, int rem
 	return udp_socket;
 }
 
-/**
- * Retrieves the IP address or hostname of the local interface used to connect
- * to the specified remote host.
- * XXX: This does not always work.  See the Github issue with the report from
- * Isop W. Alexander showing that a machine with two ports (172.28.0.10 and
- * 192.168.191.130) sent a connection request that came from the 172 IP address
- * but that had the name of the 192 interface in the message as the host to
- * call back.  This turned out to be unroutable, so the server failed to call
- * back on the correct IP address.  Presumably, this happens when the gateway
- * is configured to be a single outgoing NIC.  This was on a Linux box.  We
- * need a more reliable way to select the outgoing NIC.  XXX Actually, the
- * problem may be that we aren't listening on the incorrect port -- the UDP
- * receipt code may use the IP address the message came from rather than the
- * machine name in the message.
- *
- * @param local_host A buffer of size 64 that will contain the name of the local
- * interface.
- * @param max_length The maximum length of the local_host buffer.
- * @param remote_host The name of the remote host.
- *
- * @return Returns -1 on getsockname() error, or the output of sprintf
- * building the local_host string.
- */
 int atl::TimeWarp::Sockets::get_local_socket_name(char* local_host, size_t max_length,
 	const char* remote_host)
 {
@@ -1142,23 +1038,6 @@ int atl::TimeWarp::Sockets::get_local_socket_name(char* local_host, size_t max_l
 	return ret;
 }
 
-/**
- * This section deals with implementing a method of connection termed a
- * UDP request.  This works by having the client open a TCP socket that
- * it listens on. It then lobs datagrams to the server asking to be
- * called back at the socket. This allows it to timeout on waiting for
- * a connection request, resend datagrams in case some got lost, or give
- * up at any time. The whole algorithm is implemented in the
- * udp_request_call() function; the functions before that are helper
- * functions that have been broken out to allow a subset of the algorithm
- * to be run by a connection whose server has dropped and they want to
- * re-establish it.
- *
- * This routine will lob a datagram to the given port on the given
- * machine asking it to call back at the port on this machine that
- * is also specified. It returns 0 on success and -1 on failure.
- */
-
 int atl::TimeWarp::Sockets::udp_request_lob_packet(
 	SOCKET udp_sock,      // Socket to use to send
 	const char*,         // Name of the machine to call
@@ -1196,16 +1075,6 @@ int atl::TimeWarp::Sockets::udp_request_lob_packet(
 
 	return 0;
 }
-
-/**
- * This routine will get a TCP socket that is ready to accept connections.
- * That is, listen() has already been called on it.
- * It will get whatever socket is available from the system. It returns
- * 0 on success and -1 on failure. On success, it fills in the pointers to
- * the socket and the port number of the socket that it obtained.
- * To select between multiple network interfaces, we can specify an IPaddress;
- * the default value is NULL, which uses the default NIC.
- */
 
 int atl::TimeWarp::Sockets::get_a_TCP_socket(SOCKET* listen_sock, int* listen_portnum,
 	const char* NIC_IP)
