@@ -9,6 +9,13 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 #-----------------------------------------------------------------------------
+# Search under the install directory and in /usr/lib for packages.
+list(APPEND CMAKE_PREFIX_PATH
+    ${CMAKE_INSTALL_PREFIX}/lib/cmake
+    usr/lib/cmake
+)
+
+#-----------------------------------------------------------------------------
 # Enable sorting projects within the solution on Visual Studio, to group
 # Test and Example files together.
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
@@ -41,6 +48,10 @@ set (TimeWarpLib_SOURCES TimeWarp.cpp)
 
 #-----------------------------------------------------------------------------
 # Build the library.
+include_directories(
+  ${CMAKE_CURRENT_SOURCE_DIR}
+  ${CMAKE_BINARY_DIR}
+)
 
 # Hide all symbols that are not explicitly exported from the library
 set(CMAKE_CXX_VISIBILITY_PRESET hidden)
@@ -53,8 +64,6 @@ set (TimeWarpLib_HEADERS
 add_library(TimeWarp STATIC ${TimeWarpLib_SOURCES} ${TimeWarpLib_HEADERS})
 set_target_properties(TimeWarp PROPERTIES LINKER_LANGUAGE CXX)
 target_include_directories(TimeWarp PUBLIC
-  ${CMAKE_CURRENT_SOURCE_DIR}
-  ${CMAKE_BINARY_DIR}
   ${CMAKE_INSTALL_PREFIX}/include
 )
 target_link_libraries(TimeWarp PUBLIC AquetiTools)
@@ -110,9 +119,8 @@ if(BUILD_TESTS)
   set (CPP_TESTS
     test_TimeWarp
   )
-  foreach (BASE ${CPP_TESTS})
-    set (APP ${BASE}_cpp)
-    add_executable (${APP} tests/${BASE}.cpp)
+  foreach (APP ${CPP_TESTS})
+    add_executable (${APP} tests/${APP}.cpp)
     set_target_properties(${APP} PROPERTIES FOLDER tests)
     target_link_libraries(${APP}
       TimeWarp
@@ -124,4 +132,31 @@ if(BUILD_TESTS)
   endforeach (BASE)
 
 endif(BUILD_TESTS)
+
+#############################################
+#install library files
+# This sections initiates the build of the  components in th TARGET_LIST. 
+# Each component
+#############################################
+configure_file(${CMAKE_SOURCE_DIR}/${PROJECT_NAME}Config.cmake.in
+               ${PROJECT_BINARY_DIR}/${PROJECT_NAME}Config.cmake
+               @ONLY)
+
+export(TARGETS ${TARGET_LIST} FILE ${PROJECT_BINARY_DIR}/${PROJECT_NAME}Targets.cmake)
+
+install(TARGETS ${TARGET_LIST} EXPORT ${PROJECT_NAME}
+   RUNTIME DESTINATION bin COMPONENT lib
+   LIBRARY DESTINATION lib${LIB_SUFFIX} COMPONENT lib
+   ARCHIVE DESTINATION lib${LIB_SUFFIX} COMPONENT lib
+   INCLUDES DESTINATION include/atl
+   PUBLIC_HEADER DESTINATION include/atl
+)
+
+install( FILES ${TimeWarpLib_HEADERS} DESTINATION include/atl)
+
+install(FILES ${PROJECT_BINARY_DIR}/${PROJECT_NAME}Config.cmake
+        DESTINATION lib${LIB_SUFFIX}/cmake)
+install(EXPORT ${PROJECT_NAME}
+        DESTINATION lib${LIB_SUFFIX}/cmake
+        FILE ${PROJECT_NAME}Targets.cmake)
 
