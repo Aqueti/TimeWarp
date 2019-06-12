@@ -2,7 +2,7 @@
 #include <cstdint>
 
 // let's start with a clean slate
-#undef TW_USE_WINSOCK_SOCKETS
+#undef AQT_USE_WINSOCK_SOCKETS
 
 // Does cygwin use winsock sockets or unix sockets?  Define this before
 // compiling the library if you want it to use WINSOCK sockets.
@@ -10,16 +10,16 @@
 
 #if defined(_WIN32) &&                                                         \
     (!defined(__CYGWIN__) || defined(CYGWIN_USES_WINSOCK_SOCKETS))
-#define TW_USE_WINSOCK_SOCKETS
+#define AQT_USE_WINSOCK_SOCKETS
 #endif
 
-#ifndef TW_USE_WINSOCK_SOCKETS
+#ifndef AQT_USE_WINSOCK_SOCKETS
 #define SOCKET int
 // On Win32, this constant is defined as ~0 (sockets are unsigned ints)
 static const int INVALID_SOCKET = -1;
 #endif
 
-#if !(defined(_WIN32) && defined(TW_USE_WINSOCK_SOCKETS))
+#if !(defined(_WIN32) && defined(AQT_USE_WINSOCK_SOCKETS))
 #include <sys/select.h> // for select
 #include <netinet/in.h> // for htonl, htons
 #endif
@@ -27,7 +27,7 @@ static const int INVALID_SOCKET = -1;
 //--------------------------------------------------------------
 // Timeval defines.
 
-#if (!defined(TW_USE_WINSOCK_SOCKETS))
+#if (!defined(AQT_USE_WINSOCK_SOCKETS))
 	#include <sys/time.h> // for timeval, timezone, gettimeofday
 #else // winsock sockets
 	// These are a pair of horrible hacks that instruct Windows include
@@ -83,7 +83,7 @@ extern double TimevalMsecs(const struct timeval& tv1);
 
 extern struct timeval MsecsTimeval(const double dMsecs);
 
-#if !(defined(_WIN32) && defined(TW_USE_WINSOCK_SOCKETS))
+#if !(defined(_WIN32) && defined(AQT_USE_WINSOCK_SOCKETS))
 #include <sys/select.h> // for fd_set
 #endif
 

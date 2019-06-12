@@ -10,7 +10,7 @@
 //--------------------------------------------------------------
 // Ensures that someone calls WSAStartup on Windows before using
 // any socket code.
-#if defined(TW_USE_WINSOCK_SOCKETS)
+#if defined(AQT_USE_WINSOCK_SOCKETS)
 class WSAStart {
 public:
 	WSAStart() {
@@ -27,7 +27,7 @@ public:
 static WSAStart startUp;
 #endif
 
-#if defined(TW_USE_WINSOCK_SOCKETS)
+#if defined(AQT_USE_WINSOCK_SOCKETS)
 /* from HP-UX */
 struct timezone {
 	int tz_minuteswest; /* minutes west of Greenwich */
@@ -40,21 +40,21 @@ struct timezone {
 // that Windows doesn't implement gettimeofday(), nor does it
 // define "struct timezone", although Winsock.h does define
 // "struct timeval".  The painful solution has been to define a
-// TW_gettimeofday() function that takes a void * as a second
+// AQT_gettimeofday() function that takes a void * as a second
 // argument (the timezone) and have all TimeWarp code call this function
 // rather than gettimeofday().  On non-WINSOCK implementations,
-// we alias TW_gettimeofday() right back to gettimeofday(), so
+// we alias AQT_gettimeofday() right back to gettimeofday(), so
 // that we are calling the system routine.  On Windows, we will
-// be using TW_gettimofday().
+// be using AQT_gettimofday().
 
-#if (!defined(TW_USE_WINSOCK_SOCKETS))
+#if (!defined(AQT_USE_WINSOCK_SOCKETS))
 // If we're using std::chrono, then we implement a new
-// TW_gettimeofday() on top of it in a platform-independent
+// AQT_gettimeofday() on top of it in a platform-independent
 // manner.  Otherwise, we just use the system call.
 #ifndef USE_STD_CHRONO
-#define TW_gettimeofday gettimeofday
+#define AQT_gettimeofday gettimeofday
 #else
-int TW_gettimeofday(struct timeval* tp,
+int AQT_gettimeofday(struct timeval* tp,
 	void* tzp = NULL);
 #endif
 #else // winsock sockets
@@ -159,7 +159,7 @@ static struct timeval high_resolution_time_to_system_time(
 	return atl::TimeWarp::Sockets::TimevalSum(hi_res_time, hr_offset);
 }
 
-int TW_gettimeofday(timeval* tp, void* tzp)
+int AQT_gettimeofday(timeval* tp, void* tzp)
 {
 	// If we have nothing to fill in, don't try.
 	if (tp == NULL) {
@@ -204,7 +204,7 @@ int TW_gettimeofday(timeval* tp, void* tzp)
 
 using namespace atl::TimeWarp::Sockets;
 
-#ifdef TW_USE_WINSOCK_SOCKETS
+#ifdef AQT_USE_WINSOCK_SOCKETS
 
 // A socket in Windows can not be closed like it can in unix-land
 #define closeSocket closesocket
@@ -217,7 +217,7 @@ static std::string WSA_number_to_string(int err)
 	return std::system_category().message(err);
 }
 #define socket_error_to_chars(x) (WSA_number_to_string(x)).c_str()
-#define TW_EINTR WSAEINTR
+#define AQT_EINTR WSAEINTR
 
 #else
 #include <errno.h> // for errno, EINTR
@@ -226,7 +226,7 @@ static std::string WSA_number_to_string(int err)
 
 #define socket_error errno
 #define socket_error_to_chars(x) strerror(x)
-#define TW_EINTR EINTR
+#define AQT_EINTR EINTR
 
 #include <arpa/inet.h>  // for inet_addr
 #include <netinet/in.h> // for sockaddr_in, ntohl, in_addr, etc
@@ -239,15 +239,15 @@ static std::string WSA_number_to_string(int err)
 
 #endif
 
-#ifndef TW_USE_WINSOCK_SOCKETS
+#ifndef AQT_USE_WINSOCK_SOCKETS
 #include <sys/wait.h> // for waitpid, WNOHANG
 #ifndef __CYGWIN__
 #include <netinet/tcp.h> // for TCP_NODELAY
 #endif                   /* __CYGWIN__ */
-#endif                   /* TW_USE_WINSOCK_SOCKETS */
+#endif                   /* AQT_USE_WINSOCK_SOCKETS */
 
 // cast fourth argument to setsockopt()
-#ifdef TW_USE_WINSOCK_SOCKETS
+#ifdef AQT_USE_WINSOCK_SOCKETS
 #define SOCK_CAST (char *)
 #else
 #ifdef sparc
@@ -525,7 +525,7 @@ int atl::TimeWarp::Sockets::noint_select(int width, fd_set* readfds, fd_set* wri
 		((timeout->tv_sec != 0) || (timeout->tv_usec != 0))) {
 		timeout2 = *timeout;
 		timeout2ptr = &timeout2;
-		TW_gettimeofday(&start, NULL);         /* Find start time */
+		AQT_gettimeofday(&start, NULL);         /* Find start time */
 		stop = TimevalSum(start, *timeout); /* Find stop time */
 	}
 	else {
@@ -558,13 +558,13 @@ int atl::TimeWarp::Sockets::noint_select(int width, fd_set* readfds, fd_set* wri
 		ret = select(width, &tmpread, &tmpwrite, &tmpexcept, timeout2ptr);
 		if (ret >= 0) { /* We are done if timeout or found some */
 			done = 1;
-		} else if (socket_error != TW_EINTR) { /* Done if non-intr error */
+		} else if (socket_error != AQT_EINTR) { /* Done if non-intr error */
 			done = 1;
 		} else if ((timeout != NULL) &&
 			((timeout->tv_sec != 0) || (timeout->tv_usec != 0))) {
 
 			/* Interrupt happened.  Find new time timeout value */
-			TW_gettimeofday(&now, NULL);
+			AQT_gettimeofday(&now, NULL);
 			if (TimevalGreater(now, stop)) { /* Past stop time */
 				done = 1;
 			}
@@ -592,7 +592,7 @@ int atl::TimeWarp::Sockets::noint_select(int width, fd_set* readfds, fd_set* wri
 	return (ret);
 }
 
-#ifndef TW_USE_WINSOCK_SOCKETS
+#ifndef AQT_USE_WINSOCK_SOCKETS
 
 int atl::TimeWarp::Sockets::noint_block_write(int outfile, const char buffer[], size_t length)
 {
@@ -605,7 +605,7 @@ int atl::TimeWarp::Sockets::noint_block_write(int outfile, const char buffer[], 
 		sofar += ret;
 
 		/* Ignore interrupted system calls - retry */
-		if ((ret == -1) && (socket_error == TW_EINTR)) {
+		if ((ret == -1) && (socket_error == AQT_EINTR)) {
 			ret = 1;    /* So we go around the loop again */
 			sofar += 1; /* Restoring it from above -1 */
 		}
@@ -637,7 +637,7 @@ int atl::TimeWarp::Sockets::noint_block_read(int infile, char buffer[], size_t l
 		sofar += ret;
 
 		/* Ignore interrupted system calls - retry */
-		if ((ret == -1) && (socket_error == TW_EINTR)) {
+		if ((ret == -1) && (socket_error == AQT_EINTR)) {
 			ret = 1;    /* So we go around the loop again */
 			sofar += 1; /* Restoring it from above -1 */
 		}
@@ -701,7 +701,7 @@ int atl::TimeWarp::Sockets::noint_block_read(SOCKET insock, char* buffer, size_t
 	return static_cast<int>(sofar); /* All bytes read */
 }
 
-#endif /* TW_USE_WINSOCK_SOCKETS */
+#endif /* AQT_USE_WINSOCK_SOCKETS */
 
 int atl::TimeWarp::Sockets::noint_block_read_timeout(SOCKET infile, char buffer[], size_t length,
 	struct timeval* timeout)
@@ -728,7 +728,7 @@ int atl::TimeWarp::Sockets::noint_block_read_timeout(SOCKET infile, char buffer[
 		((timeout->tv_sec != 0) || (timeout->tv_usec != 0))) {
 		timeout2 = *timeout;
 		timeout2ptr = &timeout2;
-		TW_gettimeofday(&start, NULL);         /* Find start time */
+		AQT_gettimeofday(&start, NULL);         /* Find start time */
 		stop = TimevalSum(start, *timeout); /* Find stop time */
 	} else {
 		timeout2ptr = timeout;
@@ -761,7 +761,7 @@ int atl::TimeWarp::Sockets::noint_block_read_timeout(SOCKET infile, char buffer[
 
 		/* See what time it is now and how long we have to go */
 		if (timeout2ptr) {
-			TW_gettimeofday(&now, NULL);
+			AQT_gettimeofday(&now, NULL);
 			if (TimevalGreater(now, stop)) { /* Timeout! */
 				return static_cast<int>(sofar);
 			} else {
@@ -774,12 +774,12 @@ int atl::TimeWarp::Sockets::noint_block_read_timeout(SOCKET infile, char buffer[
 			continue;
 		}
 
-#ifndef TW_USE_WINSOCK_SOCKETS
+#ifndef AQT_USE_WINSOCK_SOCKETS
 		ret = read(infile, buffer + sofar, length - sofar);
 		sofar += ret;
 
 		/* Ignore interrupted system calls - retry */
-		if ((ret == -1) && (socket_error == TW_EINTR)) {
+		if ((ret == -1) && (socket_error == AQT_EINTR)) {
 			ret = 1;    /* So we go around the loop again */
 			sofar += 1; /* Restoring it from above -1 */
 		}
@@ -793,7 +793,7 @@ int atl::TimeWarp::Sockets::noint_block_read_timeout(SOCKET infile, char buffer[
 #endif
 
 	} while ((ret > 0) && (sofar < length));
-#ifndef TW_USE_WINSOCK_SOCKETS
+#ifndef AQT_USE_WINSOCK_SOCKETS
 	if (ret == -1) return (-1); /* Error during read */
 #endif
 	if (ret == 0) return (-1); /* EOF reached */
@@ -960,7 +960,7 @@ SOCKET atl::TimeWarp::Sockets::connect_udp_port(const char* machineName, int rem
 			return INVALID_SOCKET;
 		}
 	}
-#ifndef TW_USE_WINSOCK_SOCKETS
+#ifndef AQT_USE_WINSOCK_SOCKETS
 	udp_name.sin_port = htons(remotePort);
 #else
 	udp_name.sin_port = htons((u_short)remotePort);
@@ -1277,14 +1277,14 @@ int atl::TimeWarp::Sockets::close_socket(SOCKET sock)
 	return closeSocket(sock);
 }
 
-// From this we get the variable "TW_big_endian" set to true if the machine we
+// From this we get the variable "AQT_big_endian" set to true if the machine we
 // are
 // on is big endian and to false if it is little endian.
 
-static const int TW_int_data_for_endian_test = 1;
-static const char* TW_char_data_for_endian_test =
-static_cast<const char*>(static_cast<const void*>((&TW_int_data_for_endian_test)));
-static const bool TW_big_endian = (TW_char_data_for_endian_test[0] != 1);
+static const int AQT_int_data_for_endian_test = 1;
+static const char* AQT_char_data_for_endian_test =
+static_cast<const char*>(static_cast<const void*>((&AQT_int_data_for_endian_test)));
+static const bool AQT_big_endian = (AQT_char_data_for_endian_test[0] != 1);
 
 // convert double to/from network order
 // I have chosen big endian as the network order for double
@@ -1299,7 +1299,7 @@ static const bool TW_big_endian = (TW_char_data_for_endian_test[0] != 1);
 
 double atl::TimeWarp::Sockets::hton(double d)
 {
-	if (!TW_big_endian) {
+	if (!AQT_big_endian) {
 		double dSwapped;
 		char* pchSwapped = (char*)& dSwapped;
 		char* pchOrig = (char*)& d;
@@ -1345,7 +1345,7 @@ double atl::TimeWarp::Sockets::ntoh(double d) { return hton(d); }
 
 int64_t atl::TimeWarp::Sockets::hton(int64_t d)
 {
-	if (!TW_big_endian) {
+	if (!AQT_big_endian) {
 		int64_t dSwapped;
 		char* pchSwapped = (char*)& dSwapped;
 		char* pchOrig = (char*)& d;
