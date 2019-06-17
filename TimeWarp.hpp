@@ -95,21 +95,23 @@ namespace atl { namespace TimeWarp {
 //=====================================================================================
 // C API interface exported through the dynamic load library for the client side.
 
-/// @brief Create a TimeWarpClient object.
-/// @param [in] hostName The computer to connect to.
-/// @param [in] port The port to connect to.  -1 for default.
-/// @param [in] cardIP The string name of the IP address of the network
-///             card to use for the outgoing connection, empty string "" for ANY.
-/// @return Pointer to the client object on success, NULL on failure.
-void* atl_TimeWarpClientCreate(const char* hostName, int port, const char* cardIP);
+extern "C" {
+	/// @brief Create a TimeWarpClient object.
+	/// @param [in] hostName The computer to connect to.
+	/// @param [in] port The port to connect to.  -1 for default.
+	/// @param [in] cardIP The string name of the IP address of the network
+	///             card to use for the outgoing connection, empty string "" for ANY.
+	/// @return Pointer to the client object on success, NULL on failure.
+	void* atl_TimeWarpClientCreate(char* hostName, int port, char* cardIP);
 
-/// @brief Set the offset on a TimeWarpClient object.
-/// @param [in] client A pointer returned by aqt_TimeWarpClientCreate().
-/// @param [in] timeOffset New time offset; positive is in the future
-///             and negative is in the past.
-/// @return True on success, false on failure.
-bool atl_TimeWarpClientSetTimeOffset(void *client, int64_t offset);
+	/// @brief Set the offset on a TimeWarpClient object.
+	/// @param [in] client A pointer returned by aqt_TimeWarpClientCreate().
+	/// @param [in] timeOffset New time offset; positive is in the future
+	///             and negative is in the past.
+	/// @return True on success, false on failure.
+	bool atl_TimeWarpClientSetTimeOffset(void* client, int64_t offset);
 
-/// @brief Destroy a TimeWarpClient object.
-/// @return True on success, false on failure.
-bool atl_TimeWarpClientDestroy(void* client);
+	/// @brief Destroy a TimeWarpClient object.
+	/// @return True on success, false on failure.
+	bool atl_TimeWarpClientDestroy(void* client);
+}

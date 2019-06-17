@@ -330,7 +330,7 @@ std::vector<std::string> TimeWarpClient::GetErrorMessages()
 }
 
 
-void* atl_TimeWarpClientCreate(const char* hostName, int port, const char* cardIP)
+void* atl_TimeWarpClientCreate(char* hostName, int port, char* cardIP)
 {
 	if (port == -1) { port = DefaultPort; }
 	TimeWarpClient* client = new TimeWarpClient(hostName, static_cast<uint16_t>(port), cardIP);

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.1.0)
-project(TimeWarp)
+project(TimeWarp LANGUAGES CXX CSharp)
 
 set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -101,6 +101,15 @@ if(BUILD_EXAMPLES)
       RUNTIME DESTINATION bin
     )
   endforeach (BASE)
+
+  if(WIN32)       # MS-Windows, both 32 and 64 bits
+    add_executable(TimeWarp_client_example_CS examples/TimeWarp_client_example_CS.cs)
+    set_target_properties(TimeWarp_client_example_CS PROPERTIES FOLDER examples)
+	target_compile_options(TimeWarp_client_example_CS PUBLIC "/unsafe")
+	install(TARGETS TimeWarp_client_example_CS EXPORT ${PROJECT_NAME}
+      RUNTIME DESTINATION bin
+    )
+  endif(WIN32)
 
 endif(BUILD_EXAMPLES)
 
