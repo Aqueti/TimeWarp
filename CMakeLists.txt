@@ -26,11 +26,15 @@ find_package(AquetiTools CONFIG REQUIRED)
 
 #-----------------------------------------------------------------------------
 # Build options.
+option(BUILD_SHARED_LIBS "Build shared libraries" OFF)
 option(BUILD_EXAMPLES "Build examples" ON)
 option(BUILD_TESTS "Build test programs" ON)
 
 #-----------------------------------------------------------------------------
 # Set things up for optional parameters
+if (BUILD_SHARED_LIBS)
+  option(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS "Export all symbols in Windows" ON)
+endif()
 
 #-----------------------------------------------------------------------------
 # Set up build product locations
@@ -53,15 +57,11 @@ include_directories(
   ${CMAKE_BINARY_DIR}
 )
 
-# Hide all symbols that are not explicitly exported from the library
-set(CMAKE_CXX_VISIBILITY_PRESET hidden)
-set(CMAKE_VISIBILITY_INLINES_HIDDEN 1)
-
 set (TimeWarpLib_HEADERS
   TimeWarp.hpp
 )
 
-add_library(TimeWarp STATIC ${TimeWarpLib_SOURCES} ${TimeWarpLib_HEADERS})
+add_library(TimeWarp ${TimeWarpLib_SOURCES} ${TimeWarpLib_HEADERS})
 set_target_properties(TimeWarp PROPERTIES LINKER_LANGUAGE CXX)
 target_include_directories(TimeWarp PUBLIC
   ${CMAKE_INSTALL_PREFIX}/include
@@ -82,10 +82,6 @@ install(TARGETS TimeWarp EXPORT ${PROJECT_NAME}
   INCLUDES DESTINATION include
   PUBLIC_HEADER DESTINATION include
 )
-
-# Back to normal symbol visibility
-set(CMAKE_CXX_VISIBILITY_PRESET default)
-set(CMAKE_VISIBILITY_INLINES_HIDDEN 0)
 
 #-----------------------------------------------------------------------------
 # Build examples if we've been asked to.
@@ -129,7 +125,7 @@ if(BUILD_TESTS)
       RUNTIME DESTINATION bin
     )
     add_test(${APP} ${APP})
-  endforeach (BASE)
+  endforeach ()
 
 endif(BUILD_TESTS)
 
