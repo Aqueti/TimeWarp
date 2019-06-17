@@ -102,7 +102,7 @@ extern "C" {
 	/// @param [in] cardIP The string name of the IP address of the network
 	///             card to use for the outgoing connection, empty string "" for ANY.
 	/// @return Pointer to the client object on success, NULL on failure.
-	void* atl_TimeWarpClientCreate(char* hostName, int port, char* cardIP);
+	void* atl_TimeWarpClientCreate(const char* hostName, int port, const char* cardIP);
 
 	/// @brief Set the offset on a TimeWarpClient object.
 	/// @param [in] client A pointer returned by aqt_TimeWarpClientCreate().
