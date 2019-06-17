@@ -359,6 +359,7 @@ bool atl_TimeWarpClientDestroy(void* client)
 	if (!client) {
 		return false;
 	}
-	delete client;
+	TimeWarpClient* me = static_cast<TimeWarpClient*>(client);
+	delete me;
 	return true;
 }
