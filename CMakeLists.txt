@@ -1,5 +1,9 @@
 cmake_minimum_required(VERSION 3.1.0)
+if(WIN32)
 project(TimeWarp LANGUAGES CXX CSharp)
+else(WIN32)
+project(TimeWarp)
+endif(WIN32)
 
 set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
