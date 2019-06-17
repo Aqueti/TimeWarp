@@ -328,3 +328,37 @@ std::vector<std::string> TimeWarpClient::GetErrorMessages()
 	std::vector<std::string> errs = { "NULL private pointer in call to GetErrorMessages" };
 	return errs;
 }
+
+
+void* atl_TimeWarpClientCreate(const char* hostName, int port, const char* cardIP)
+{
+	if (port == -1) { port = DefaultPort; }
+	TimeWarpClient* client = new TimeWarpClient(hostName, static_cast<uint16_t>(port), cardIP);
+	if (client->GetErrorMessages().size()) {
+		delete client;
+		return nullptr;
+	}
+	return client;
+}
+
+bool atl_TimeWarpClientSetTimeOffset(void* client, int64_t offset)
+{
+	if (!client) {
+		return false;
+	}
+	TimeWarpClient* me = static_cast<TimeWarpClient*>(client);
+	me->SetTimeOffset(offset);
+	if (me->GetErrorMessages().size()) {
+		return false;
+	}
+	return true;
+}
+
+bool atl_TimeWarpClientDestroy(void* client)
+{
+	if (!client) {
+		return false;
+	}
+	delete client;
+	return true;
+}
