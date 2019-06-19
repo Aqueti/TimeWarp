@@ -14,6 +14,7 @@
 #include <memory>
 #include <atomic>
 #include <string.h>
+#include <map>
 
 // Versioned magic-cookie string to send and receive at connection initialization.
 static std::string MagicCookie = "aqt::TimeWarp::Connection v01.00.00";
@@ -253,6 +254,7 @@ TimeWarpClient::TimeWarpClient(std::string hostName, uint16_t port, std::string 
 	if (cardIP.size() > 0) { nicName = cardIP.c_str(); }
 	if (!Sockets::connect_tcp_to(hostName.c_str(), port, nicName, &m_private->m_socket)) {
 		m_private->m_errors.push_back("Could not connect to requested TCP port");
+		m_private->m_socket = INVALID_SOCKET;
 		return;
 	}
 
@@ -329,37 +331,45 @@ std::vector<std::string> TimeWarpClient::GetErrorMessages()
 	return errs;
 }
 
+//===================================================================================
+// C API interface uses a map to store pointers that are used later so that it does
+// not have to return void * (which in C# is unsafe).
+static int g_lastIndex = 0;
+static std::map<int, std::shared_ptr<TimeWarpClient> > g_cliMap;
+static std::mutex d_cliMutex;
 
-void* atl_TimeWarpClientCreate(const char* hostName, int port, const char* cardIP)
+int atl_TimeWarpClientCreate(const char* hostName, int port, const char* cardIP)
 {
+	std::lock_guard<std::mutex> lock(d_cliMutex);
 	if (port == -1) { port = DefaultPort; }
-	TimeWarpClient* client = new TimeWarpClient(hostName, static_cast<uint16_t>(port), cardIP);
-	if (client->GetErrorMessages().size()) {
-		delete client;
-		return nullptr;
+	std::shared_ptr<TimeWarpClient> cli =
+		std::make_shared<TimeWarpClient>(hostName, static_cast<uint16_t>(port), cardIP);
+	if (cli->GetErrorMessages().size()) {
+		return -1;
 	}
-	return client;
+	int index = g_lastIndex++;
+	g_cliMap[index] = cli;
+	return index;
 }
 
-bool atl_TimeWarpClientSetTimeOffset(void* client, int64_t offset)
+bool atl_TimeWarpClientSetTimeOffset(int client, int64_t offset)
 {
-	if (!client) {
+	std::lock_guard<std::mutex> lock(d_cliMutex);
+	if (client == -1) {
 		return false;
 	}
-	TimeWarpClient* me = static_cast<TimeWarpClient*>(client);
-	me->SetTimeOffset(offset);
-	if (me->GetErrorMessages().size()) {
+	std::shared_ptr<TimeWarpClient> cli = g_cliMap[client];
+	if (cli == nullptr) {
 		return false;
 	}
-	return true;
+	return cli->SetTimeOffset(offset);
 }
 
-bool atl_TimeWarpClientDestroy(void* client)
+bool atl_TimeWarpClientDestroy(int client)
 {
-	if (!client) {
+	std::lock_guard<std::mutex> lock(d_cliMutex);
+	if (client == -1) {
 		return false;
 	}
-	TimeWarpClient* me = static_cast<TimeWarpClient*>(client);
-	delete me;
-	return true;
+	return (g_cliMap.erase(client) == 1);
 }

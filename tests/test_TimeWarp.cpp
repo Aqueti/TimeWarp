@@ -75,8 +75,8 @@ int main(int argc, char* argv[])
 
 	// Use the C API to atart a client to connect on the default port and make sure
 	// it is working.
-	void* cliC = atl_TimeWarpClientCreate("localhost", -1, "");
-	if (!cliC) {
+	int cliC = atl_TimeWarpClientCreate("localhost", -1, "");
+	if (cliC == -1) {
 		std::cerr << "Error(s) opening C client" << std::endl;
 		return 5;
 	}

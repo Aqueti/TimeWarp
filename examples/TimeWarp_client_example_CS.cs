@@ -11,31 +11,30 @@ using System.Runtime.InteropServices;
 public class TimeWarp
 {
     [DllImport("TimeWarp.dll", CallingConvention = CallingConvention.Cdecl)]
-    public static unsafe extern void* atl_TimeWarpClientCreate(string hostName, int port, string cardIP);
+    public static extern int atl_TimeWarpClientCreate(string hostName, int port, string cardIP);
 
     [DllImport("TimeWarp.dll")]
-    public static unsafe extern bool atl_TimeWarpClientSetTimeOffset(void* client, Int64 offset);
+    public static extern bool atl_TimeWarpClientSetTimeOffset(int client, Int64 offset);
 
     [DllImport("TimeWarp.dll")]
-    public static unsafe extern bool atl_TimeWarpClientDestroy(void* client);
+    public static extern bool atl_TimeWarpClientDestroy(int client);
 
-    public unsafe TimeWarp(string hostName, int port, string cardIP)
+    public TimeWarp(string hostName, int port, string cardIP)
     {
         client = atl_TimeWarpClientCreate(hostName, port, cardIP);
     }
 
-    public unsafe bool SetTimeOffset(Int64 offset)
+    public bool SetTimeOffset(Int64 offset)
     {
-        if (client == null) { return false; }
         return atl_TimeWarpClientSetTimeOffset(client, offset);
     }
 
-    unsafe ~TimeWarp()
+    ~TimeWarp()
     {
         atl_TimeWarpClientDestroy(client);
     }
 
-    private unsafe void* client = null;
+    private int client = -1;
 }
 
 class main

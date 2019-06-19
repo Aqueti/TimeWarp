@@ -101,17 +101,18 @@ extern "C" {
 	/// @param [in] port The port to connect to.  -1 for default.
 	/// @param [in] cardIP The string name of the IP address of the network
 	///             card to use for the outgoing connection, empty string "" for ANY.
-	/// @return Pointer to the client object on success, NULL on failure.
-	void* atl_TimeWarpClientCreate(const char* hostName, int port, const char* cardIP);
+	/// @return Index ofthe client object on success, -1 on failure.
+	int atl_TimeWarpClientCreate(const char* hostName, int port, const char* cardIP);
 
 	/// @brief Set the offset on a TimeWarpClient object.
-	/// @param [in] client A pointer returned by aqt_TimeWarpClientCreate().
+	/// @param [in] client A value returned by aqt_TimeWarpClientCreate().
 	/// @param [in] timeOffset New time offset; positive is in the future
 	///             and negative is in the past.
 	/// @return True on success, false on failure.
-	bool atl_TimeWarpClientSetTimeOffset(void* client, int64_t offset);
+	bool atl_TimeWarpClientSetTimeOffset(int client, int64_t offset);
 
 	/// @brief Destroy a TimeWarpClient object.
+	/// @param [in] client A value returned by aqt_TimeWarpClientCreate().
 	/// @return True on success, false on failure.
-	bool atl_TimeWarpClientDestroy(void* client);
+	bool atl_TimeWarpClientDestroy(int client);
 }

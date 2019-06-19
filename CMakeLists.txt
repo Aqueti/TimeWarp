@@ -109,7 +109,7 @@ if(BUILD_EXAMPLES)
   if(WIN32)       # MS-Windows, both 32 and 64 bits
     add_executable(TimeWarp_client_example_CS examples/TimeWarp_client_example_CS.cs)
     set_target_properties(TimeWarp_client_example_CS PROPERTIES FOLDER examples)
-	target_compile_options(TimeWarp_client_example_CS PUBLIC "/unsafe")
+	#target_compile_options(TimeWarp_client_example_CS PUBLIC "/unsafe")
 	install(TARGETS TimeWarp_client_example_CS EXPORT ${PROJECT_NAME}
       RUNTIME DESTINATION bin
     )
