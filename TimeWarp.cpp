@@ -7,7 +7,7 @@
 */
 
 #include "TimeWarp.hpp"
-#include <Sockets.hpp>
+#include <CoreSocket.hpp>
 #include <mutex>
 #include <thread>
 #include <map>
@@ -23,6 +23,7 @@ static std::string MagicCookie = "aqt::TimeWarp::Connection v01.00.00";
 static const int64_t OP_SET_TIME = 1;
 
 using namespace atl::TimeWarp;
+using namespace atl::CoreSocket;
 
 class atl::TimeWarp::TimeWarpServer::TimeWarpServerPrivate {
 public:
@@ -34,7 +35,7 @@ public:
 	void*						m_userData = nullptr;
 	std::vector<std::string>	m_errors;
 
-	SOCKET						m_listen = INVALID_SOCKET;
+	SOCKET						m_listen = BAD_SOCKET;
 	std::thread					m_listenThread;
 
 	// This structure keeps track of threads and the sockets that they should
@@ -72,16 +73,16 @@ TimeWarpServer::TimeWarpServer(TimeWarpServerCallback callback, void* userData,
 	if (cardIP.size() > 0) {
 		cardIPChar = cardIP.c_str();
 	}
-	m_private->m_listen = Sockets::open_tcp_socket(&port, cardIPChar);
-	if (m_private->m_listen == INVALID_SOCKET) {
+	m_private->m_listen = CoreSocket::open_tcp_socket(&port, cardIPChar);
+	if (m_private->m_listen == BAD_SOCKET) {
 		m_private->m_errors.push_back("Could not open socket " + std::to_string(port) +
 			" for listening");
 		return;
 	}
 	if (listen(m_private->m_listen, 1)) {
 		m_private->m_errors.push_back("get_a_TCP_socket: listen() failed.");
-		Sockets::close_socket(m_private->m_listen);
-		m_private->m_listen = INVALID_SOCKET;
+		CoreSocket::close_socket(m_private->m_listen);
+		m_private->m_listen = BAD_SOCKET;
 		return;
 	}
 
@@ -107,7 +108,7 @@ void TimeWarpServer::ListenThread(std::shared_ptr<TimeWarpServerPrivate> p)
 	// Keep listening for connections.  When we get one, add it to the list.
 	while (!p->m_quit) {
 		SOCKET acceptSock;
-		int ret = Sockets::poll_for_accept(p->m_listen, &acceptSock, 0.01);
+		int ret = CoreSocket::poll_for_accept(p->m_listen, &acceptSock, 0.01);
 		switch (ret) {
 			case 0:
 				break;
@@ -166,11 +167,11 @@ void TimeWarpServer::AcceptThread(std::shared_ptr<TimeWarpServerPrivate> p, size
 	{
 		// Try to send the magic cookie, telling the client our version.
 		size_t len = MagicCookie.size();
-		if (len != Sockets::noint_block_write(info->m_sock, MagicCookie.c_str(), len)) {
+		if (len != CoreSocket::noint_block_write(info->m_sock, MagicCookie.c_str(), len)) {
 			std::lock_guard<std::mutex> lock(p->m_mutex);
 			p->m_errors.push_back("Could not write magic cookie");
-			Sockets::close_socket(info->m_sock);
-			info->m_sock = INVALID_SOCKET;
+			CoreSocket::close_socket(info->m_sock);
+			info->m_sock = BAD_SOCKET;
 			info->m_done = true;
 			return;
 		}
@@ -179,19 +180,19 @@ void TimeWarpServer::AcceptThread(std::shared_ptr<TimeWarpServerPrivate> p, size
 		// we're expecting.  Time out if we don't hear back within half a second.
 		std::vector<char> cookie(len);
 		struct timeval timeout = { 0, 500000 };
-		if (len != Sockets::noint_block_read_timeout(info->m_sock, cookie.data(), len, &timeout)) {
+		if (len != CoreSocket::noint_block_read_timeout(info->m_sock, cookie.data(), len, &timeout)) {
 			std::lock_guard<std::mutex> lock(p->m_mutex);
 			p->m_errors.push_back("Could not read magic cookie");
-			Sockets::close_socket(info->m_sock);
-			info->m_sock = INVALID_SOCKET;
+			CoreSocket::close_socket(info->m_sock);
+			info->m_sock = BAD_SOCKET;
 			info->m_done = true;
 			return;
 		}
 		if (0 != memcmp(cookie.data(), MagicCookie.c_str(), len)) {
 			std::lock_guard<std::mutex> lock(p->m_mutex);
 			p->m_errors.push_back("Bad magic cookie from server");
-			Sockets::close_socket(info->m_sock);
-			info->m_sock = INVALID_SOCKET;
+			CoreSocket::close_socket(info->m_sock);
+			info->m_sock = BAD_SOCKET;
 			info->m_done = true;
 			return;
 		}
@@ -206,7 +207,7 @@ void TimeWarpServer::AcceptThread(std::shared_ptr<TimeWarpServerPrivate> p, size
 	while (!p->m_quit) {
 		// Poll to see if we can read another request until we get one or get an error.
 		struct timeval timeout = { 1, 1000 };
-		int got = Sockets::noint_block_read_timeout(info->m_sock, &(buffer.data()[numRead]),
+		int got = CoreSocket::noint_block_read_timeout(info->m_sock, &(buffer.data()[numRead]),
 			len - numRead, &timeout);
 
 		// If it was an error, we're done.  This is not a global error, just a closed connection.
@@ -218,15 +219,15 @@ void TimeWarpServer::AcceptThread(std::shared_ptr<TimeWarpServerPrivate> p, size
 		// Otherwise, we just go around and read some more.
 		if (numRead + got == len) {
 			std::lock_guard<std::mutex> lock(p->m_mutex);
-			opLocal = Sockets::ntoh(*reinterpret_cast<int64_t*>(&buffer.data()[0]));
-			offLocal = Sockets::ntoh(*reinterpret_cast<int64_t*>(&buffer.data()[sizeof(opLocal)]));
+			opLocal = CoreSocket::ntoh(*reinterpret_cast<int64_t*>(&buffer.data()[0]));
+			offLocal = CoreSocket::ntoh(*reinterpret_cast<int64_t*>(&buffer.data()[sizeof(opLocal)]));
 			p->m_callback(p->m_userData, offLocal);
 			numRead = 0;
 		}
 	}
 	
 	// Close my socket before quitting
-	Sockets::close_socket(info->m_sock);
+	CoreSocket::close_socket(info->m_sock);
 	info->m_done = true;
 }
 
@@ -242,7 +243,7 @@ std::vector<std::string> TimeWarpServer::GetErrorMessages()
 class atl::TimeWarp::TimeWarpClient::TimeWarpClientPrivate {
 public:
 	std::vector<std::string> m_errors;
-	SOCKET m_socket = INVALID_SOCKET;
+	SOCKET m_socket = BAD_SOCKET;
 };
 
 TimeWarpClient::TimeWarpClient(std::string hostName, uint16_t port, std::string cardIP)
@@ -252,18 +253,18 @@ TimeWarpClient::TimeWarpClient(std::string hostName, uint16_t port, std::string 
 	// Connect to the requested socket.
 	const char* nicName = nullptr;
 	if (cardIP.size() > 0) { nicName = cardIP.c_str(); }
-	if (!Sockets::connect_tcp_to(hostName.c_str(), port, nicName, &m_private->m_socket)) {
+	if (!CoreSocket::connect_tcp_to(hostName.c_str(), port, nicName, &m_private->m_socket)) {
 		m_private->m_errors.push_back("Could not connect to requested TCP port");
-		m_private->m_socket = INVALID_SOCKET;
+		m_private->m_socket = BAD_SOCKET;
 		return;
 	}
 
 	// Try to send the magic cookie, telling the server our version.
 	size_t len = MagicCookie.size();
-	if (len != Sockets::noint_block_write(m_private->m_socket, MagicCookie.c_str(), len)) {
+	if (len != CoreSocket::noint_block_write(m_private->m_socket, MagicCookie.c_str(), len)) {
 		m_private->m_errors.push_back("Could not write magic cookie");
-		Sockets::close_socket(m_private->m_socket);
-		m_private->m_socket = INVALID_SOCKET;
+		CoreSocket::close_socket(m_private->m_socket);
+		m_private->m_socket = BAD_SOCKET;
 		return;
 	}
 
@@ -272,24 +273,24 @@ TimeWarpClient::TimeWarpClient(std::string hostName, uint16_t port, std::string 
 	std::vector<char> cookie(len);
 	struct timeval timeout = { 0, 500000 };
 	int ret;
-	if (len != (ret = Sockets::noint_block_read_timeout(m_private->m_socket, cookie.data(), len, &timeout))) {
+	if (len != (ret = CoreSocket::noint_block_read_timeout(m_private->m_socket, cookie.data(), len, &timeout))) {
 		m_private->m_errors.push_back("Could not read magic cookie");
-		Sockets::close_socket(m_private->m_socket);
-		m_private->m_socket = INVALID_SOCKET;
+		CoreSocket::close_socket(m_private->m_socket);
+		m_private->m_socket = BAD_SOCKET;
 		return;
 	}
 	if (0 != memcmp(cookie.data(), MagicCookie.c_str(), len)) {
 		m_private->m_errors.push_back("Bad magic cookie from server");
-		Sockets::close_socket(m_private->m_socket);
-		m_private->m_socket = INVALID_SOCKET;
+		CoreSocket::close_socket(m_private->m_socket);
+		m_private->m_socket = BAD_SOCKET;
 		return;
 	}
 }
 
 TimeWarpClient::~TimeWarpClient()
 {
-	if (m_private->m_socket != INVALID_SOCKET) {
-		Sockets::close_socket(m_private->m_socket);
+	if (m_private->m_socket != BAD_SOCKET) {
+		CoreSocket::close_socket(m_private->m_socket);
 	}
 	m_private.reset();
 }
@@ -299,22 +300,22 @@ bool TimeWarpClient::SetTimeOffset(int64_t timeOffset)
 	if (!m_private) {
 		return false;
 	}
-	if (m_private->m_socket == INVALID_SOCKET) {
+	if (m_private->m_socket == BAD_SOCKET) {
 		m_private->m_errors.push_back("Attempted to set time on unconnected object");
 		return false;
 	}
 
 	// Pack a 64-bit op-code to set the time offset followed by
 	// the 64-bit time offset into a buffer and send it.
-	int64_t opNet = Sockets::hton(OP_SET_TIME);
-	int64_t offNet = Sockets::hton(timeOffset);
+	int64_t opNet = CoreSocket::hton(OP_SET_TIME);
+	int64_t offNet = CoreSocket::hton(timeOffset);
 	size_t len = sizeof(opNet) + sizeof(offNet);
 	std::vector<char> buffer(len);
 	memcpy(&buffer[0], &opNet, sizeof(int64_t));
 	memcpy(&buffer[sizeof(opNet)], &offNet, sizeof(int64_t));
 
 	// Send the command
-	if (len != Sockets::noint_block_write(m_private->m_socket, buffer.data(), len)) {
+	if (len != CoreSocket::noint_block_write(m_private->m_socket, buffer.data(), len)) {
 		m_private->m_errors.push_back("Could not send command on socket");
 		return false;
 	}
